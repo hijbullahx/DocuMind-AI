@@ -17,6 +17,7 @@ from .ocr_engine import (
 from .pdf_parser import PDFParser
 from .image_parser import ImageParser
 from .spreadsheet_parser import SpreadsheetParser
+from .ingestion_service import DocumentIngestionService
 
 __all__ = [
     "BaseParser",
@@ -31,4 +32,5 @@ __all__ = [
     "PDFParser",
     "ImageParser",
     "SpreadsheetParser",
+    "DocumentIngestionService",
 ]

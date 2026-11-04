@@ -58,7 +58,12 @@
   - Implemented deterministic blank sheet detection, empty file handling, corrupted container guards, and in-memory bytes support.
   - Verified 14 automated unit tests in `tests/test_spreadsheet_parser.py`.
   - Full backend test suite passing: 48 passed, 1 skipped in 6.45s (14 PDF tests, 20 OCR tests, 14 spreadsheet tests).
-- [ ] **TASK-005**: Unified Document Ingestion Pipeline & Corrupted File Guard.
+- [x] **TASK-005**: Unified Document Ingestion Pipeline & Corrupted File Guard.
+  - Implemented `backend/apps/ingestion/ingestion_service.py`: `DocumentIngestionService` unifying `PDFParser`, `ImageParser`, and `SpreadsheetParser`.
+  - Added multi-level format detection: extension matching with magic byte sniffing (`%PDF-`, PNG, JPEG, TIFF, OpenXML `PK\x03\x04`, OLE2, CSV text heuristics).
+  - Implemented corrupted file guard: zero-byte empty file detection, non-existent file handling, unhandled parser exception isolation, and unsupported format rejection.
+  - Verified 18 automated unit tests in `tests/test_ingestion_service.py`.
+  - Full backend test suite passing: 66 passed, 1 skipped in 5.21s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service tests).
 - [ ] **TASK-006**: Invoice Pydantic Schema & Zero-Hallucination Prompt Design.
 - [ ] **TASK-007**: LLM Extraction Client with Structured Outputs.
 - [ ] **TASK-008**: Deterministic Financial Validation Engine.
