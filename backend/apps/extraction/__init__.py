@@ -1,6 +1,7 @@
 """
 DocuMind AI Extraction Package.
-Exports Pydantic schemas, validation errors, and zero-hallucination prompt builders.
+Exports Pydantic schemas, validation errors, zero-hallucination prompt builders,
+and modular LLM extraction clients.
 """
 from .schemas import (
     ExtractionSchemaError,
@@ -14,6 +15,21 @@ from .prompts import (
     build_extraction_prompt,
     build_prompt_messages,
 )
+from .llm_client import (
+    BaseLLMProvider,
+    EvidenceAlignmentStatus,
+    ExtractionResultStatus,
+    GeminiProvider,
+    LLMConfigurationError,
+    LLMExtractionClient,
+    LLMExtractionResult,
+    MockLLMProvider,
+    OpenAIProvider,
+    ProviderRawResponse,
+    _adapt_schema_for_openai_strict,
+    _inline_json_schema,
+    compute_evidence_confidence,
+)
 
 __all__ = [
     "InvoiceExtraction",
@@ -24,4 +40,17 @@ __all__ = [
     "INVOICE_EXTRACTION_SYSTEM_PROMPT",
     "build_extraction_prompt",
     "build_prompt_messages",
+    "BaseLLMProvider",
+    "EvidenceAlignmentStatus",
+    "ExtractionResultStatus",
+    "GeminiProvider",
+    "LLMConfigurationError",
+    "LLMExtractionClient",
+    "LLMExtractionResult",
+    "MockLLMProvider",
+    "OpenAIProvider",
+    "ProviderRawResponse",
+    "_adapt_schema_for_openai_strict",
+    "_inline_json_schema",
+    "compute_evidence_confidence",
 ]

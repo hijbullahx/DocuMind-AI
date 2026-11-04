@@ -75,6 +75,19 @@
   - Added 26 automated unit and security tests in `backend/tests/test_extraction_schema.py`.
   - Full backend test suite passing: 92 passed, 1 skipped in 5.82s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema tests).
 - [ ] **TASK-007**: LLM Extraction Client with Structured Outputs.
+  - Implemented `backend/apps/extraction/llm_client.py`: Modular LLM extraction client (`LLMExtractionClient`) with provider abstraction (`BaseLLMProvider`).
+  - Supported providers: `MockLLMProvider` (deterministic offline testing and CI), `GeminiProvider` (Google Gemini REST API with schema inlining and key redaction), and `OpenAIProvider` (OpenAI REST API with strict Structured Outputs mode `response_format: {"type": "json_schema", "json_schema": {"strict": True, "schema": ...}}`).
+  - Implemented provider-specific schema adaptation:
+    * `_adapt_schema_for_openai_strict`: Recursively enforces `additionalProperties: false`, requires all properties (with nullable `anyOf: [..., {"type": "null"}]`), adapts dynamic `raw_text_evidence` to explicit optional properties, and recursively strips unsupported Pydantic keywords (`default`, `title`) to satisfy strict JSON Schema validation without mutating the shared TASK-006 schema.
+    * `_inline_json_schema`: Deep-copies and inlines `$defs` / `$ref` for Google Gemini `responseSchema` compatibility.
+  - Implemented exponential backoff retries on transient network/timeout errors, immediate failure for non-retriable HTTP errors (400, 401, 403), and sanitized error reporting preventing API key leakage.
+  - Implemented heuristic evidence-grounding scoring (`compute_evidence_confidence`): evaluates verbatim and non-stopword token overlap of `raw_text_evidence` quotes against source text; null fields receive `None` (`NOT_APPLICABLE`) and do not inflate composite grounding scores.
+  - Added 30 automated unit and mocked HTTP contract tests in `backend/tests/test_llm_client.py` covering clean extraction, markdown fences, exact/partial/unmatched grounding semantics, null field exclusion, stopword filtering, Gemini payload schema inlining, OpenAI strict mode `response_format` structure, unstructured fallback, key redaction, timeout retries, non-retriable HTTP codes, and prompt boundary sealing.
+  - Full backend test suite passing: 122 passed, 1 skipped in 4.64s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client tests).
+  - Testing Level & Limitations:
+    * Unit Tests: Verified client coordination, prompt construction, parsing, and failure recovery.
+    * Mocked HTTP Contract Tests: Verified Gemini and OpenAI payload formatting, strict schema adaptation, and header redaction without external network calls.
+    * Live Provider Tests: Unverified because live paid API credentials are not configured in this environment; real neural injection resistance requires live inference.
 - [ ] **TASK-008**: Deterministic Financial Validation Engine.
 - [ ] **TASK-009**: PDF-PDF & PDF-Excel Cross-Verification Engine.
 - [ ] **TASK-010**: Django Models, PostgreSQL Schema & Migrations.
