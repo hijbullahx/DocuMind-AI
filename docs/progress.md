@@ -103,7 +103,19 @@
   - Implemented `engine.py`: `ValidationEngine` coordinating schema coercion (from model, dict, or JSON string), anomaly checks, mathematical rules, and status determination (`VERIFIED`, `NEEDS_REVIEW`, `FAILED`).
   - Added 53 automated unit and audit regression tests in `backend/tests/test_validation_engine.py` covering exact tolerance boundaries (0.05 vs 0.051), float tolerance safety, indeterminate item amounts, null tax review rules, duplicate detection collision prevention, date boundary plausibility, status precedence, and serialization.
   - Full backend test suite passing: 175 passed, 1 skipped in 5.21s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine tests).
-- [ ] **TASK-009**: PDF-PDF & PDF-Excel Cross-Verification Engine.
+- [x] **TASK-009**: PDF-PDF & PDF-Excel Cross-Verification Engine.
+  - Implemented `backend/apps/validation/cross_verifier.py`: `CrossDocumentVerifier`, `CrossVerificationResult`, `CrossDocumentDiscrepancy`, `CrossVerificationRuleId`.
+  - Reconciles paired documents across:
+    * Total, subtotal, and tax amounts with configurable arithmetic tolerance (default $\le 0.05$).
+    * Currency normalization and conflict detection (symbol mapping `$` $\to$ `USD`, `€` $\to$ `EUR`, `£` $\to$ `GBP`).
+    * Supplier legal entity name and customer recipient name matching with entity punctuation normalization.
+    * Reference / invoice number matching supporting both flexible PO-Invoice mode (`WARNING`) and strict invoice mode (`ERROR`).
+    * Line items cross-reconciliation using global bipartite candidate ranking `(-sim, -amount_match, idx_a, idx_b)`: prioritizes exact description matches and matching amounts before partial overlap ($\ge 0.70$) regardless of input document list order. Compares item quantity, unit price, and line amount, with unmatched item detection (`CROSS_UNMATCHED_ITEM`).
+    * Conservative missing/null handling: missing totals or figures are not treated as false mismatches but flag actionable `CROSS_INCOMPLETE_COMPARISON` review warnings.
+    * Multi-format support: reconciles PDF-PDF pairs, PDF-Excel/CSV spreadsheet rows, raw JSON strings, and `DocumentExtractionResult` tables.
+    * Duplicate discrepancy suppression and deterministic output ordering with indexed line item field paths (`line_items[{idx}].quantity`, `line_items[{idx}]`) preventing suppression collisions across distinct items sharing identical descriptions.
+  - Added 32 automated unit tests in `backend/tests/test_cross_verifier.py` covering matching pairs, financial discrepancies, quantity/price overcharges, conservative missing data handling, reference matching modes, spreadsheet/tabular reconciliation, line item ranking and order independence, multiple identical items, exact tolerance boundaries (0.05 vs 0.051), and JSON serialization.
+  - Full backend test suite passing: 207 passed, 1 skipped in 5.16s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine, 32 cross-verifier tests).
 - [ ] **TASK-010**: Django Models, PostgreSQL Schema & Migrations.
 - [ ] **TASK-011**: Celery Async Task Worker & Redis Integration.
 - [ ] **TASK-012**: Django REST Framework Endpoints.

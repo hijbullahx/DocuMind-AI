@@ -26,6 +26,12 @@ from .anomaly_rules import (
     verify_non_negative_amounts,
 )
 from .engine import ValidationEngine
+from .cross_verifier import (
+    CrossDocumentDiscrepancy,
+    CrossDocumentVerifier,
+    CrossVerificationResult,
+    CrossVerificationRuleId,
+)
 
 __all__ = [
     "ValidationStatus",
@@ -46,5 +52,9 @@ __all__ = [
     "verify_non_negative_amounts",
     "run_all_anomaly_rules",
     "ValidationEngine",
+    "CrossDocumentDiscrepancy",
+    "CrossDocumentVerifier",
+    "CrossVerificationResult",
+    "CrossVerificationRuleId",
 ]
 
