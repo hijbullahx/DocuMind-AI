@@ -64,7 +64,16 @@
   - Implemented corrupted file guard: zero-byte empty file detection, non-existent file handling, unhandled parser exception isolation, and unsupported format rejection.
   - Verified 18 automated unit tests in `tests/test_ingestion_service.py`.
   - Full backend test suite passing: 66 passed, 1 skipped in 5.21s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service tests).
-- [ ] **TASK-006**: Invoice Pydantic Schema & Zero-Hallucination Prompt Design.
+- [x] **TASK-006**: Invoice Pydantic Schema & Zero-Hallucination Prompt Design.
+  - Implemented `backend/apps/extraction/schemas.py`: Pydantic v2 schemas (`InvoiceExtraction`, `LineItemExtraction`) with strict validation, `Decimal` precision for monetary amounts, and defensive type coercion.
+  - Enforced zero-hallucination contract: unknown/missing values normalize strictly to `None` across all fields (including `supplier_address` and `customer_address`), prohibiting hallucinated zeros, fake dates, or arithmetic guesswork.
+  - Implemented `_clean_decimal_str`: strictly validates standard US/UK comma grouping (`\d{1,3}(,\d{3})+(\.\d+)?`), strips single currency symbols without identity confusion or currency hallucination, rejects `NaN`/`Infinity`, and rejects malformed/ambiguous formats (`1,2`, `1,2,3`, `1,,000`, `$100 €`).
+  - Documented negative values & European format: negative amounts / credit notes are intentionally unsupported by this payable schema and rejected (`ge=0`); European decimal-comma formats (`1250,50`, `1.250,50`) are explicitly rejected as ambiguous rather than silently interpreted to prevent 100x calculation errors.
+  - Documented `raw_text_evidence`: models extraction claims provided by the LLM; does not independently verify substring presence against original source text (cross-document verification is evaluated in TASK-008/TASK-009).
+  - Implemented `backend/apps/extraction/prompts.py`: Zero-hallucination system prompt (`INVOICE_EXTRACTION_SYSTEM_PROMPT`) prohibiting arithmetic fabrication and speculative extrapolation; prompt builder with `<DOCUMENT_CONTENT>` boundary tag isolation and escaping of embedded tags (`&lt;/DOCUMENT_CONTENT&gt;`) against tag-smuggling injection. Unit tests verify template structure and escaping; actual model resistance requires LLM execution in TASK-007.
+  - Implemented defensive JSON parsing helper `InvoiceExtraction.from_raw_json()` handling clean JSON, markdown code fence stripping (````json ... ````), and raising `ExtractionSchemaError`.
+  - Added 26 automated unit and security tests in `backend/tests/test_extraction_schema.py`.
+  - Full backend test suite passing: 92 passed, 1 skipped in 5.82s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema tests).
 - [ ] **TASK-007**: LLM Extraction Client with Structured Outputs.
 - [ ] **TASK-008**: Deterministic Financial Validation Engine.
 - [ ] **TASK-009**: PDF-PDF & PDF-Excel Cross-Verification Engine.
