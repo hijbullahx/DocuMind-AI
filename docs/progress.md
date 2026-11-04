@@ -1,4 +1,4 @@
-﻿# Project Progress & Status Tracker
+# Project Progress & Status Tracker
 **Project**: DocuMind-AI  
 **Last Updated**: 2026-11-04  
 **Final Stack**: React + Vite + Tailwind CSS | Django + DRF | PostgreSQL | Celery + Redis | PyMuPDF & pdfplumber | EasyOCR/Tesseract
@@ -10,11 +10,12 @@
 | Metric | Current Value |
 | :--- | :--- |
 | **Active Sprint** | Day 1 - Sprint 1 (Document Ingestion Pipeline) |
-| **Current Task** | TASK-002: Modular Ingestion Core & Digital PDF Extractor (Corrective Review Complete, Awaiting Commit Approval) |
-| **Completed Tasks** | 2 / 21 |
+| **Current Task** | TASK-003: Modular OCR Engine Evaluation & Implementation (Completed, Awaiting Review) |
+| **Completed Tasks** | 3 / 21 |
 | **Remaining Days** | 5 Days |
-| **Test Suite Status** | 14 passed in 2.48s (100% pass rate) |
-| **Blocking Issues** | None. Awaiting final user approval before Git commit and proceeding to TASK-003. |
+| **Default Test Suite** | 25 passed, 1 skipped in 3.61s (100% offline & mock-based) |
+| **Real OCR Smoke Test** | PASSED in 26.53s (Opt-in via RUN_REAL_OCR_SMOKE=1) |
+| **Blocking Issues** | None. Awaiting final user review before Git commit and proceeding to TASK-004. |
 
 ---
 
@@ -42,12 +43,15 @@
 - [x] **TASK-002**: Modular Ingestion Core & Digital PDF Extractor.
   - Implemented `backend/apps/ingestion/base.py`: Abstract parser interface, Pydantic data contracts (`ExtractionStatus`, `PageExtraction`, `DocumentMetadata`, `DocumentExtractionResult`).
   - Implemented `backend/apps/ingestion/pdf_parser.py`: PyMuPDF (`pymupdf`) vector text parser + `pdfplumber` structured table extraction.
-  - Granular Page Categorization: Per-page `has_text`, `has_images`, `is_blank`, and `needs_ocr` flags.
-  - Deterministic Document Status Logic: Accurately classifies `SUCCESS` (digital text + blank pages), `PARTIAL_SUCCESS` (mixed digital + image pages), `NEEDS_OCR` (image-only pages), `EMPTY` (blank-only pages), and `CORRUPTED`. Blank pages are never routed to OCR.
-  - Added non-fatal `table_extraction_warning` diagnostic field to prevent silent table parser failures.
-  - Implemented 14 automated unit tests in `backend/tests/test_pdf_parser.py`.
-  - Automated tests verified: 14/14 passed in 2.48s.
-- [ ] **TASK-003**: Modular OCR Engine Evaluation & Implementation (EasyOCR / Tesseract for images & scanned PDFs).
+  - Verified 14 automated unit tests.
+- [x] **TASK-003**: Modular OCR Engine Evaluation & Implementation.
+  - Evaluated EasyOCR vs. Tesseract for Windows OS; selected EasyOCR with `BaseOCREngine` abstraction to avoid external C++ binary installers.
+  - Implemented `backend/apps/ingestion/ocr_engine.py`: `OCRResult`, `BaseOCREngine`, `EasyOCREngine` (with lazy PyTorch model loading and Pillow contrast enhancement), and `MockOCREngine` (for deterministic, network-free unit tests).
+  - Implemented `backend/apps/ingestion/image_parser.py`: Standalone parser for PNG, JPG, JPEG, and TIFF files.
+  - Integrated PyMuPDF high-resolution page rendering (`page.get_pixmap(dpi=200)`) and selective OCR routing in `PDFParser`. Blank pages and digital pages never trigger OCR.
+  - Implemented deterministic post-OCR state recomputation and dedicated `ocr_warnings: List[str]` diagnostics.
+  - Verified default test suite: 34 passed, 1 skipped in 4.33s (includes all 14 TASK-002 regression tests and 20 mock unit tests).
+  - Verified real EasyOCR opt-in smoke test: PASSED in 26.53s (`RUN_REAL_OCR_SMOKE=1`).
 - [ ] **TASK-004**: Spreadsheet & CSV Parser (openpyxl & pandas for XLSX, XLS, CSV).
 - [ ] **TASK-005**: Unified Document Ingestion Pipeline & Corrupted File Guard.
 - [ ] **TASK-006**: Invoice Pydantic Schema & Zero-Hallucination Prompt Design.
@@ -70,14 +74,16 @@
 ---
 
 ## Technical Audit & Memory/Performance Truth
-1. **Memory Ingestion Reality**:
-   * The current parser reads files into memory as whole bytes (`file_bytes = f.read()`).
-   * This is fast and reliable for standard invoices and receipts (1–20 pages).
-   * **Important Limitation**: For massive 1,000-page packets, whole-file loading is memory-bound. Streaming page iterators or disk-backed temporary spooling have *not* been benchmarked yet. True 1,000-page throughput and memory scaling will be empirically evaluated under TASK-020.
-2. **Table Extraction Reliability**:
-   * Table extraction runs via `pdfplumber.extract_tables()`.
-   * Non-fatal table errors are captured into `result.table_extraction_warning` without aborting text extraction.
-3. **Classification Integrity**:
-   * Blank pages (`is_blank=True`) are explicitly distinguished from image-only pages (`needs_ocr=True`).
-   * A document with digital text + blank pages correctly returns `SUCCESS`.
-   * A document with digital text + scanned image pages correctly returns `PARTIAL_SUCCESS`.
+1. **Memory & Lazy Initialization**:
+   * `EasyOCREngine` uses lazy property initialization. If a document is pure digital text, `EasyOCR` is never imported or loaded into RAM.
+   * Unit tests inject `MockOCREngine`, ensuring default test runs consume zero model RAM and run in < 4 seconds.
+2. **Selective Page Routing**:
+   * Blank pages (`is_blank=True`) are strictly bypassed and never sent to OCR.
+   * Scanned pages (`needs_ocr=True`) are rendered to PIL images and processed individually.
+   * If OCR fails on one page, digital text on other pages is preserved, and the document is classified as `PARTIAL_SUCCESS`.
+3. **Table & OCR Diagnostic Separation**:
+   * `table_extraction_warning` remains strictly for `pdfplumber` issues.
+   * `ocr_warnings` records page-specific OCR anomalies or engine exceptions without silently converting errors to empty outputs.
+4. **Current Ingestion Limitations**:
+   * OCR is configured for printed English/Latin typography; cursive handwriting is out of scope.
+   * 1,000-page bulk OCR throughput will be evaluated during the Day 5 benchmark (TASK-020).

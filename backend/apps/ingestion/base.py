@@ -11,12 +11,12 @@ from pydantic import BaseModel, Field
 
 class ExtractionStatus(str, Enum):
     """Extraction outcome state for ingested documents."""
-    SUCCESS = "SUCCESS"               # High-confidence digital text extracted across all non-blank pages
-    PARTIAL_SUCCESS = "PARTIAL_SUCCESS" # Mixed document (e.g. digital text + scanned/sparse pages)
-    NEEDS_OCR = "NEEDS_OCR"           # Document has pages with images/no text, requires OCR
-    EMPTY = "EMPTY"                   # Document contains 0 pages or completely blank pages
+    SUCCESS = "SUCCESS"               # High-confidence digital or OCR-recovered text extracted across all non-blank pages
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS" # Mixed document where some pages were extracted and others failed or yielded sparse text
+    NEEDS_OCR = "NEEDS_OCR"           # Document has image-only pages requiring OCR (or OCR completed with 0 text)
+    EMPTY = "EMPTY"                   # Document contains 0 pages, completely blank pages, or clean OCR yielded 0 text
     CORRUPTED = "CORRUPTED"           # File is malformed, truncated, or unreadable
-    FAILED = "FAILED"                 # Unhandled processing failure (missing file, OS permission)
+    FAILED = "FAILED"                 # Unhandled processing failure or fatal engine crash
 
 
 class PageExtraction(BaseModel):
@@ -32,7 +32,9 @@ class PageExtraction(BaseModel):
     has_images: bool = Field(default=False, description="True if embedded raster images are detected")
     char_count: int = Field(default=0, description="Character count on page")
     is_blank: bool = Field(default=False, description="True if page has zero text and zero images")
-    needs_ocr: bool = Field(default=False, description="True if page contains images with sub-threshold text")
+    needs_ocr: bool = Field(default=False, description="True if page requires OCR processing")
+    ocr_applied: bool = Field(default=False, description="True if OCR was executed on this page")
+    ocr_confidence: Optional[float] = Field(default=None, description="Average OCR confidence score 0.0-1.0")
 
 
 class DocumentMetadata(BaseModel):
@@ -61,6 +63,10 @@ class DocumentExtractionResult(BaseModel):
     table_extraction_warning: Optional[str] = Field(
         default=None,
         description="Diagnostic warning if table extraction encountered an issue without breaking text extraction"
+    )
+    ocr_warnings: List[str] = Field(
+        default_factory=list,
+        description="Page-level or engine-level diagnostic warnings encountered during OCR processing"
     )
     processing_time_ms: float = Field(default=0.0, description="Elapsed execution time in milliseconds")
 
