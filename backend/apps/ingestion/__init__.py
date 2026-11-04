@@ -1,4 +1,4 @@
-﻿"""
+"""
 Ingestion module exports.
 """
 from .base import (
@@ -16,6 +16,7 @@ from .ocr_engine import (
 )
 from .pdf_parser import PDFParser
 from .image_parser import ImageParser
+from .spreadsheet_parser import SpreadsheetParser
 
 __all__ = [
     "BaseParser",
@@ -29,4 +30,5 @@ __all__ = [
     "OCRResult",
     "PDFParser",
     "ImageParser",
+    "SpreadsheetParser",
 ]

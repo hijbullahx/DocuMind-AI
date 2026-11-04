@@ -52,7 +52,12 @@
   - Implemented deterministic post-OCR state recomputation and dedicated `ocr_warnings: List[str]` diagnostics.
   - Verified default test suite: 34 passed, 1 skipped in 4.33s (includes all 14 TASK-002 regression tests and 20 mock unit tests).
   - Verified real EasyOCR opt-in smoke test: PASSED in 26.53s (`RUN_REAL_OCR_SMOKE=1`).
-- [ ] **TASK-004**: Spreadsheet & CSV Parser (openpyxl & pandas for XLSX, XLS, CSV).
+- [x] **TASK-004**: Spreadsheet & CSV Parser (openpyxl & pandas for XLSX, XLS, CSV).
+  - Implemented `backend/apps/ingestion/spreadsheet_parser.py`: Standalone `SpreadsheetParser` supporting `.xlsx` (via openpyxl), legacy `.xls` (via xlrd), and `.csv` (via standard csv reader with delimiter sniffing).
+  - Multi-sheet workbooks map 1:1 to `PageExtraction` contracts with structured 3D table extraction (`PageExtraction.tables`) and readable Markdown tabular text (`PageExtraction.text`).
+  - Implemented deterministic blank sheet detection, empty file handling, corrupted container guards, and in-memory bytes support.
+  - Verified 14 automated unit tests in `tests/test_spreadsheet_parser.py`.
+  - Full backend test suite passing: 48 passed, 1 skipped in 6.45s (14 PDF tests, 20 OCR tests, 14 spreadsheet tests).
 - [ ] **TASK-005**: Unified Document Ingestion Pipeline & Corrupted File Guard.
 - [ ] **TASK-006**: Invoice Pydantic Schema & Zero-Hallucination Prompt Design.
 - [ ] **TASK-007**: LLM Extraction Client with Structured Outputs.
