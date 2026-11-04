@@ -74,7 +74,7 @@
   - Implemented defensive JSON parsing helper `InvoiceExtraction.from_raw_json()` handling clean JSON, markdown code fence stripping (````json ... ````), and raising `ExtractionSchemaError`.
   - Added 26 automated unit and security tests in `backend/tests/test_extraction_schema.py`.
   - Full backend test suite passing: 92 passed, 1 skipped in 5.82s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema tests).
-- [ ] **TASK-007**: LLM Extraction Client with Structured Outputs.
+- [x] **TASK-007**: LLM Extraction Client with Structured Outputs.
   - Implemented `backend/apps/extraction/llm_client.py`: Modular LLM extraction client (`LLMExtractionClient`) with provider abstraction (`BaseLLMProvider`).
   - Supported providers: `MockLLMProvider` (deterministic offline testing and CI), `GeminiProvider` (Google Gemini REST API with schema inlining and key redaction), and `OpenAIProvider` (OpenAI REST API with strict Structured Outputs mode `response_format: {"type": "json_schema", "json_schema": {"strict": True, "schema": ...}}`).
   - Implemented provider-specific schema adaptation:
@@ -88,7 +88,21 @@
     * Unit Tests: Verified client coordination, prompt construction, parsing, and failure recovery.
     * Mocked HTTP Contract Tests: Verified Gemini and OpenAI payload formatting, strict schema adaptation, and header redaction without external network calls.
     * Live Provider Tests: Unverified because live paid API credentials are not configured in this environment; real neural injection resistance requires live inference.
-- [ ] **TASK-008**: Deterministic Financial Validation Engine.
+- [x] **TASK-008**: Deterministic Financial Validation Engine.
+  - Implemented `backend/apps/validation/`: Standalone deterministic financial validation package.
+  - Implemented `models.py`: `ValidationStatus` (`VERIFIED`, `NEEDS_REVIEW`, `FAILED`), `ValidationSeverity` (`ERROR`, `WARNING`, `INFO`), `ValidationRuleId`, `ValidationError`, and `ValidationResult`.
+  - Implemented `math_rules.py`:
+    * Line Item Sum Check: $|\sum(\text{line\_item.amount}) - \text{subtotal}| \le 0.05$ with automatic calculation from $quantity \times unit\_price$ when item amount is omitted.
+    * Tax Addition Check: $|\text{subtotal} + \text{tax} - \text{total}| \le 0.05$, validating zero tax when subtotal equals total and rejecting tax exceeding total.
+    * Itemized Calculation Check: $|\text{quantity} \times \text{unit\_price} - \text{amount}| \le 0.05$ across all line items.
+  - Implemented `anomaly_rules.py`:
+    * Missing critical field guard: triggers `ERROR` for missing `invoice_number`, `invoice_date`, or `total`; `WARNING` for missing `supplier_name`.
+    * Duplicate invoice detector: normalized, case- and whitespace-insensitive matching on `(supplier_name, invoice_number)` with `InMemoryDuplicateDetector` and pluggable protocol.
+    * Date validity & chronological guard: calendar parsing via `dateutil`, past threshold warning (year < 2000), future threshold warning (> 365 days), and chronological contradiction check (`due_date < invoice_date` triggers `ERROR`).
+    * Negative amount guard: rejects negative values across totals and line items.
+  - Implemented `engine.py`: `ValidationEngine` coordinating schema coercion (from model, dict, or JSON string), anomaly checks, mathematical rules, and status determination (`VERIFIED`, `NEEDS_REVIEW`, `FAILED`).
+  - Added 53 automated unit and audit regression tests in `backend/tests/test_validation_engine.py` covering exact tolerance boundaries (0.05 vs 0.051), float tolerance safety, indeterminate item amounts, null tax review rules, duplicate detection collision prevention, date boundary plausibility, status precedence, and serialization.
+  - Full backend test suite passing: 175 passed, 1 skipped in 5.21s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine tests).
 - [ ] **TASK-009**: PDF-PDF & PDF-Excel Cross-Verification Engine.
 - [ ] **TASK-010**: Django Models, PostgreSQL Schema & Migrations.
 - [ ] **TASK-011**: Celery Async Task Worker & Redis Integration.
