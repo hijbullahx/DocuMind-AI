@@ -1,6 +1,6 @@
 ﻿# DocuMind-AI: Enterprise Document Intelligence & Financial Validation System
 
-An AI-powered document intelligence and automated validation platform designed to ingest high-volume, multi-format financial documents, extract structured invoice entities, perform mathematical and cross-document reconciliation, and provide fast keyword and semantic search via a modern web interface and REST API.
+An AI-powered document intelligence and automated validation platform designed to ingest high-volume, multi-format financial documents, extract structured invoice entities, perform mathematical and cross-document reconciliation, and provide fast keyword, full-text, and semantic search via a modern web interface and REST API.
 
 ---
 
@@ -11,7 +11,7 @@ Organizations handle thousands of business documents daily—including digital i
 1. **Automating Multi-Format Ingestion**: High-throughput extraction across digital PDFs, scanned documents (OCR), images (PNG, JPG, TIFF), and tabular spreadsheets (XLSX, XLS, CSV).
 2. **AI Information Extraction**: Zero-hallucination extraction of header and line-item entities into validated, structured JSON schemas.
 3. **Deterministic Financial Validation**: Automated audit rules checking arithmetic integrity ($\sum \text{items} = \text{subtotal}$, $\text{subtotal} + \text{tax} = \text{total}$), duplicate invoices, and cross-document reconciliation (PDF-to-PDF and PDF-to-Excel).
-4. **Hybrid Search Engine**: Combined exact metadata filtering and vector-based semantic search across document contents.
+4. **Hybrid Search Engine**: PostgreSQL Full-Text Search (FTS) paired with vector-based semantic search across document contents.
 5. **Interactive Operator Dashboard**: Clean web UI for batch uploads, queue monitoring, extraction inspection, validation alert review, and manual corrections.
 
 ---
@@ -20,23 +20,27 @@ Organizations handle thousands of business documents daily—including digital i
 ```
 +--------------------------------------------------------------------+
 |                         Frontend Web App                           |
-|          Next.js (App Router) / React + Tailwind CSS + Lucide      |
+|                 React + Vite + Tailwind CSS + Lucide               |
 |         - Batch Upload Zone   - Queue Monitor   - Extraction UI    |
 +----------------------------------^---------------------------------+
-                                   | REST / Polling / SSE
+                                   | REST / JSON
 +----------------------------------v---------------------------------+
 |                         Backend API Layer                          |
-|             FastAPI (Python 3.11+) + Pydantic v2 + Uvicorn         |
+|             Django 5.x + Django REST Framework (DRF)               |
 |  - Ingestion Endpoints   - Job Orchestrator    - Search API        |
 +---------+------------------------+------------------------+--------+
           |                        |                        |
 +---------v--------+      +--------v--------+      +--------v--------+
 | Ingestion Engine |      | AI & Validation |      | Persistence     |
-| - PyMuPDF / FitZ |      | - LLM Extraction|      | - SQLite /      |
-| - pdfplumber     |      |   (Schema Guard)|      |   PostgreSQL    |
-| - Tesseract OCR  |      | - Math Auditor  |      | - Vector Index  |
+| - PyMuPDF / FitZ |      | - LLM Extraction|      | - PostgreSQL 15+|
+| - pdfplumber     |      |   (Schema Guard)|      | - Full-Text Srch|
+| - EasyOCR/Tesseract     | - Math Auditor  |      | - pgvector      |
 | - openpyxl/pandas|      | - Cross-Verifier|      | - Audit Trails  |
 +------------------+      +-----------------+      +-----------------+
+          |                        |
++---------v------------------------v--------+
+|      Async Task Queue (Celery + Redis)    |
++-------------------------------------------+
 ```
 
 ---
@@ -52,10 +56,11 @@ DocuMind-AI/
 │   ├── development-plan.md        # 5-day Agile implementation plan
 │   ├── progress.md                # Task tracking and milestone log
 │   └── ai-disclosure.md           # AI assistance & prompt transparency
-├── backend/                       # FastAPI backend application
-│   ├── app/                       # Core application modules
-│   └── tests/                     # Automated unit and integration test suite
-├── frontend/                      # Next.js / React operator dashboard
+├── backend/                       # Django + DRF backend application
+│   ├── documind/                  # Django project configuration & Celery setup
+│   ├── apps/                      # Modular services: ingestion, extraction, validation, search, api
+│   └── tests/                     # Automated test suites
+├── frontend/                      # React + Vite + Tailwind CSS dashboard
 └── data/                          # Sample files, test datasets, and benchmarks
     ├── samples/                   # Representative input documents
     ├── eval/                      # Labeled evaluation benchmark dataset
@@ -68,9 +73,10 @@ DocuMind-AI/
 ## 🚀 Getting Started (Setup Instructions)
 
 ### Prerequisites
-- **Python**: 3.10+ (recommended 3.11+)
-- **Node.js**: 18+ (recommended 20 LTS)
-- **Tesseract OCR**: (For scanned image & PDF OCR processing)
+- **Python**: 3.11+
+- **Node.js**: 18+ (tested with v24)
+- **PostgreSQL**: 15+
+- **Redis**: For Celery background task processing
 - **Git**: Installed and configured
 
 ### Quickstart Guide

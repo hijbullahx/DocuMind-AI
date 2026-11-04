@@ -1,4 +1,4 @@
-﻿# System Architecture & Technical Design
+﻿# System Architecture & Technical Design (Revised)
 **DocuMind-AI: Enterprise Document Intelligence & Financial Validation System**
 
 ---
@@ -9,78 +9,89 @@ DocuMind-AI uses a decoupled, service-oriented architecture designed for reliabi
 
 ```text
                        [ Operator / Web Client ]
+                       React + Vite + Tailwind CSS
                                    │
-                                   ▼ HTTP / REST
+                                   ▼ HTTP / JSON (REST)
                      ┌───────────────────────────┐
-                     │    FastAPI Application    │
-                     │  (Routers, Auth, Schema)  │
+                     │ Django REST Framework API │
+                     │   (Auth, Views, Serializers)│
                      └─────────────┬─────────────┘
                                    │
-           ┌───────────────────────┼───────────────────────┐
-           ▼                       ▼                       ▼
-┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
-│ Document Ingestion  │ │ AI Extraction &     │ │ Persistence &       │
-│ Engine              │ │ Validation Engine   │ │ Search Engine       │
-│                     │ │                     │ │                     │
-│ • PyMuPDF / FitZ    │ │ • LLM Client        │ │ • SQLite / Postgres │
-│ • pdfplumber        │ │   (Pydantic Schema) │ │ • SQLAlchemy 2.0    │
-│ • Tesseract OCR     │ │ • Math Audit Rules  │ │ • Vector Embeddings │
-│ • openpyxl / pandas │ │ • Cross-Verifier    │ │ • Audit Trail Log   │
-└─────────────────────┘ └─────────────────────┘ └─────────────────────┘
+             ┌─────────────────────┼─────────────────────┐
+             ▼                     ▼                     ▼
+┌─────────────────────────┐ ┌───────────────┐ ┌──────────────────────┐
+│  Celery Task Worker     │ │ Redis Broker  │ │ PostgreSQL 15+       │
+│  (Async Ingestion & AI) │ │ (Job Queue)   │ │ • Relational Tables  │
+│                         │ └───────▲───────┘ │ • Full-Text Search   │
+│ • PyMuPDF & pdfplumber  │         │         │ • Audit History Logs │
+│ • EasyOCR / Tesseract   │ ────────┘         │ • pgvector (Semantic)│
+│ • openpyxl & pandas     │                   └──────────────────────┘
+│ • LLM Structured Output │
+│ • Math & Cross-Verifier │
+└─────────────────────────┘
 ```
 
 ---
 
-## 2. Component Breakdown
+## 2. Technology Stack Selection & Rationale
 
-### A. API & Orchestration Layer (FastAPI)
-* **Framework**: FastAPI (Python 3.11+).
-* **Rationale**: Python natively supports the best-in-class document processing and AI data science libraries without requiring multi-process bridge hacks. FastAPI offers native async performance, Pydantic v2 data validation, and automated OpenAPI documentation.
-* **Background Worker**: File ingestion and OCR are CPU-intensive. Background tasks decouple ingestion requests from the HTTP loop, returning an immediate `202 Accepted` job token so the client can poll or track progress.
-
-### B. Ingestion Pipeline
-1. **MIME & Integrity Validation**: Inspects file headers (magic bytes) to ensure safety and prevent malicious payload uploads.
-2. **Strategy Router**:
-   * **PDF (Digital)**: Extracted using `PyMuPDF` / `pdfplumber` for instant, high-fidelity vector text and table extraction.
-   * **PDF (Scanned) & Images (PNG, JPG, TIFF)**: Preprocessed via `Pillow` (contrast enhancement, binarization) and passed to `Tesseract OCR`.
-   * **Spreadsheets (XLSX, XLS, CSV)**: Parsed with `openpyxl` and `pandas` into structured row-column representations.
-
-### C. AI Information Extraction & Guardrails
-* **Structured Outputs**: Prompts are coupled with strict JSON Schema / Pydantic models. The LLM is constrained to output valid JSON matching the exact schema.
-* **Zero-Hallucination Design**: The prompt specifically instructs the model to return `null` for any field that cannot be explicitly identified in the text.
-* **Confidence Scoring**: Each extracted field includes an estimated confidence metric based on presence, formatting regularity, and source quality.
-
-### D. Financial Validation Engine
-* Runs immediately after AI extraction to enforce business logic:
-  * Arithmetic checks: Line item sums vs. Subtotal, Subtotal + Tax vs. Total.
-  * Duplicate detection: Hash matching on Supplier Name + Invoice Number.
-  * PDF-to-Excel & PDF-to-PDF cross-matching.
-* Sets document verification state (`VERIFIED` vs `NEEDS_REVIEW`).
-
-### E. Persistence & Hybrid Search
-* **Database**: Relational models (via SQLAlchemy 2.0) storing documents, extracted invoice headers, line items, validation errors, and audit changes.
-* **Hybrid Search**:
-  * **Keyword Search**: SQL queries over indexed fields (`supplier_name`, `invoice_number`, `date`, `total`).
-  * **Semantic Search**: Text embeddings generated from raw document text, enabling natural language similarity queries (e.g., "Find all consulting invoices from last quarter").
+| Layer | Chosen Technology | Selection Rationale |
+| :--- | :--- | :--- |
+| **Frontend** | **React + Vite + Tailwind CSS** | Blazing-fast Hot Module Replacement (HMR), minimal boilerplate, lightweight SPA architecture. Decoupled from backend, avoiding SSR overhead while providing responsive UI with Tailwind utility classes. |
+| **Backend** | **Django 5.x + Django REST Framework (DRF)** | Enterprise-grade ORM, robust database migrations, built-in admin panel for inspecting raw data, high security out of the box (CSRF, SQL injection protection), and clean serialization/viewset abstraction. |
+| **Database** | **PostgreSQL (15+)** | ACID-compliant relational store with native support for `JSONField` (for dynamic extraction payload caching), native **PostgreSQL Full-Text Search** (`SearchVector`, `SearchQuery`, `tsvector`), and optional `pgvector` extension for semantic search. |
+| **Queue & Cache** | **Celery + Redis** | Industry-standard async distributed task queue. Separates heavy CPU/network operations (OCR, PDF page parsing, LLM calls) from synchronous API request-response loops. |
+| **PDF Extraction**| **PyMuPDF (`fitz`) & `pdfplumber`** | Dual-engine strategy: `PyMuPDF` provides high-speed vector text and layout parsing; `pdfplumber` provides superior table cell coordinate extraction. |
+| **OCR Strategy** | **Modular (EasyOCR / Tesseract)** | Modular interface (`BaseOCREngine`). Evaluates EasyOCR (pure Python, bundled deep-learning models, zero system binary prerequisites) vs. Tesseract OCR (fast C++ binary). Graceful fallback ensures pipeline never crashes if one engine is absent. |
+| **Spreadsheets** | **openpyxl & pandas** | Native handling of multi-sheet `.xlsx`, legacy `.xls`, and comma-separated `.csv` files. |
+| **AI Extraction** | **LLM API (Structured JSON Mode)**| Prompt engineering combined with JSON Schema / Pydantic validation to guarantee zero-hallucination structured invoice outputs. |
+| **Search Engine** | **PostgreSQL FTS (initially) → pgvector (semantic)** | Phase 1 leverages PostgreSQL native full-text search with stemming and ranking. Phase 2 introduces vector similarity embeddings for natural language semantic document queries. |
 
 ---
 
-## 3. Data Flow Diagram
+## 3. Modular Application Architecture
+
+The backend will follow a modular service design inside Django (`backend/apps/`):
+
 ```text
-File Upload ──> Validation ──> File Storage ──> Queue Job (202 Accepted)
-                                                     │
-                                                     ▼
-Text / OCR / Table Extraction <──────────────────────┘
-         │
-         ▼
-Prompt Assembly + LLM Structured Extraction
-         │
-         ▼
-Deterministic Financial Validation Rules (Math Audit + Duplicate Check)
-         │
-         ▼
-Persist Record (Status: VERIFIED or NEEDS_REVIEW) + Generate Embeddings
-         │
-         ▼
-Client Polls / Fetches Result ──> Operator Review & Manual Override (Audit Logged)
+backend/
+├── manage.py
+├── documind/                     # Project configuration & settings
+│   ├── settings.py
+│   ├── urls.py
+│   ├── celery.py                 # Celery app initialization
+│   └── wsgi.py
+└── apps/
+    ├── documents/                # Models: Document, Extraction, LineItem, ValidationError, AuditLog
+    ├── ingestion/                # Modular parsers (independent from web layer)
+    │   ├── base.py               # Ingestion interface
+    │   ├── pdf_parser.py         # PyMuPDF + pdfplumber
+    │   ├── ocr_engine.py         # EasyOCR / Tesseract modular engine
+    │   └── spreadsheet_parser.py # openpyxl / pandas
+    ├── extraction/               # AI Extraction service
+    │   ├── schemas.py            # Pydantic schemas for Invoice & LineItems
+    │   ├── prompts.py            # Anti-hallucination prompt definitions
+    │   └── llm_client.py         # LLM provider wrapper (Gemini / OpenAI)
+    ├── validation/               # Deterministic business rules
+    │   ├── math_rules.py         # Sum, Tax, Item total verification
+    │   ├── anomaly_rules.py      # Missing fields, duplicate detection
+    │   └── cross_verifier.py     # PDF-PDF & PDF-Excel cross reconciliation
+    ├── search/                   # Search service
+    │   ├── fts.py                # PostgreSQL Full-Text Search indexer & query
+    │   └── semantic.py           # Vector embeddings & similarity search
+    └── api/                      # DRF Serializers, ViewSets, and URL routers
 ```
+
+---
+
+## 4. Key Architectural Risks & Mitigation Strategies
+
+1. **Celery Worker on Windows**:
+   * *Risk*: The default Celery `prefork` pool encounters multiprocessing bugs on Windows OS.
+   * *Mitigation*: Configure Celery to use `--pool=solo` or `--pool=threads` during local Windows execution. For automated tests, configure `CELERY_TASK_ALWAYS_EAGER = True` so tasks run synchronously within tests without requiring an active Redis broker.
+2. **Database Availability in Local Environment**:
+   * *Risk*: PostgreSQL service might not be running or configured initially on every developer machine.
+   * *Mitigation*: Use `django-environ` to allow dynamic switching to SQLite during initial offline development and automated unit testing, while targeting PostgreSQL for full-text search and production.
+3. **OCR Engine Dependencies**:
+   * *Risk*: Tesseract binary missing from PATH breaks scanned document processing.
+   * *Mitigation*: EasyOCR as primary Python-native fallback, or modular strategy pattern where missing OCR binary produces an informative `WARNING` and flags the document rather than unhandled exception.
