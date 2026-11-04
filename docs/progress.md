@@ -116,7 +116,18 @@
     * Duplicate discrepancy suppression and deterministic output ordering with indexed line item field paths (`line_items[{idx}].quantity`, `line_items[{idx}]`) preventing suppression collisions across distinct items sharing identical descriptions.
   - Added 32 automated unit tests in `backend/tests/test_cross_verifier.py` covering matching pairs, financial discrepancies, quantity/price overcharges, conservative missing data handling, reference matching modes, spreadsheet/tabular reconciliation, line item ranking and order independence, multiple identical items, exact tolerance boundaries (0.05 vs 0.051), and JSON serialization.
   - Full backend test suite passing: 207 passed, 1 skipped in 5.16s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine, 32 cross-verifier tests).
-- [ ] **TASK-010**: Django Models, PostgreSQL Schema & Migrations.
+- [x] **TASK-010**: Django Models, PostgreSQL Schema & Migrations.
+  - Configured Django project structure: `backend/manage.py`, `backend/documind/` (`settings.py`, `urls.py`, `wsgi.py`).
+  - Implemented `backend/apps/documents/models.py`:
+    * `Document`: Root container with UUID primary key, file upload field, metadata JSONField, pipeline status (`QUEUED`, `PROCESSING`, `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`), and validation status (`PENDING`, `VERIFIED`, `NEEDS_REVIEW`, `FAILED`).
+    * `InvoiceExtraction`: 1:1 structured financial extraction with strict Decimal fields (`subtotal`, `tax`, `total`), nullable fields for zero-hallucination compliance, and `raw_text_evidence` JSON mapping.
+    * `LineItem`: ForeignKey to `InvoiceExtraction` with line numbers, descriptions, 4-decimal quantity/unit price, and line amounts.
+    * `ValidationError`: ForeignKey to `Document` recording rule IDs, affected fields, severity (`ERROR`, `WARNING`, `INFO`), actual/expected values, arithmetic differences, and operator dismissal fields (`is_dismissed`, `dismissed_by`, `dismissed_at`).
+    * `AuditLog`: Immutable audit trail tracking operator manual corrections, overrides, status changes, reasons, and timestamps, with model-level update and direct deletion protection.
+    * `CrossReconciliation`: Relational record of paired document verification (`doc_a`, `doc_b`) with status, discrepancies/warnings JSONField, item match counts, summary, and `prevent_self_reconciliation` database CheckConstraint.
+  - Generated and verified reproducible initial migration `apps/documents/migrations/0001_initial.py`.
+  - Added 29 automated unit tests in `backend/tests/test_document_models.py` covering model creation, UUID keys, Decimal financial precision, status choices and transition save enforcement, metadata JSON storage, cascade deletions, review dismissals, immutable audit logs, 1:1 extraction uniqueness, self-reconciliation prevention, Pydantic integration compatibility, and migration reproducibility.
+  - Full backend test suite passing: 236 passed, 1 skipped in 13.81s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine, 32 cross-verifier, 29 document models tests).
 - [ ] **TASK-011**: Celery Async Task Worker & Redis Integration.
 - [ ] **TASK-012**: Django REST Framework Endpoints.
 - [ ] **TASK-013**: PostgreSQL Full-Text Search (FTS).

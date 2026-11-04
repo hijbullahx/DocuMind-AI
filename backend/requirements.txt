@@ -10,3 +10,6 @@ xlrd>=2.0.1
 # Testing & Synthetic Document Generation
 pytest>=7.4.0
 reportlab>=4.0.0
+
+# Backend Web Framework & ORM
+django>=5.0.0
