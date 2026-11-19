@@ -7,6 +7,8 @@ from decimal import Decimal
 import uuid
 from typing import Any, Dict, List, Optional
 
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.utils import timezone
@@ -64,6 +66,7 @@ class Document(models.Model):
     error_message = models.TextField(blank=True, null=True)
     raw_text = models.TextField(blank=True, null=True)
     metadata = models.JSONField(default=dict, blank=True)
+    search_vector = SearchVectorField(null=True, blank=True, editable=False)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -75,6 +78,7 @@ class Document(models.Model):
             models.Index(fields=['validation_status']),
             models.Index(fields=['filename']),
             models.Index(fields=['created_at']),
+            GinIndex(fields=['search_vector'], name='doc_search_vector_gin'),
         ]
 
     def __str__(self) -> str:

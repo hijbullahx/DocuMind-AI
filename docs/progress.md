@@ -170,24 +170,28 @@
   - Added 23 automated unit tests in `backend/tests/test_document_api.py` covering uploads, constraints, pagination, filtering, search, detail inspection, status polling, reprocessing, and cross-reconciliation.
   - Focused test suite passing: 162 passed in 18.42s (23 document API, 25 Celery, 29 document models, 53 validation engine, 32 cross-verifier).
   - Full backend test suite passing: 284 passed, 1 skipped.
-- [x] **TASK-013**: PostgreSQL Full-Text Search (FTS).
+- [x] **TASK-013**: PostgreSQL Full-Text Search (FTS) & Remediation.
   - Implemented dedicated search service in `backend/apps/documents/search.py`:
-    * Native PostgreSQL Full-Text Search engine using `SearchVector`, `SearchQuery`, and `SearchRank`.
+    * Native PostgreSQL Full-Text Search engine using persisted `SearchVectorField` on `Document` (`search_vector`).
     * 4-tier weighted ranking architecture:
       - Weight A (Highest): `Document.filename`, `InvoiceExtraction.invoice_number`
       - Weight B (Primary Entities): `InvoiceExtraction.supplier_name`, `InvoiceExtraction.customer_name`
       - Weight C (Secondary Details): `InvoiceExtraction.supplier_address`, `InvoiceExtraction.customer_address`, `LineItem.description`
       - Weight D (Document Body): `Document.raw_text` (all OCR text, PDF vector text, and spreadsheet tabular data)
-    * Multi-word and phrase parsing using websearch syntax with graceful fallback to plain search.
-    * Relevance rank annotation (`search_rank`) and ranking-based ordering (`-search_rank`, `-created_at`).
+    * GIN-indexable full-text matching: `Document.objects.filter(search_vector=query_obj)` compiles directly to native PostgreSQL `@@` operator utilizing `doc_search_vector_gin` index via Bitmap Index Scan.
+    * Completely eliminated Cartesian product and duplicate document issues: zero joins to `LineItem` or `InvoiceExtraction` at search query time.
+    * Relevance rank annotation (`search_rank`) via `SearchRank(F("search_vector"), query_obj)` and ranking-based ordering (`-search_rank`, `-created_at`).
     * Robust SQLite / development multi-field search fallback ensuring 100% test suite compatibility and offline dev functionality without database errors.
     * Input query sanitization: whitespace normalization, multi-word tokenization, special character and punctuation escaping. Empty or whitespace-only queries bypass search overhead entirely.
-  - Added migration `backend/apps/documents/migrations/0002_postgres_fts_indexes.py`:
-    * Conditionally creates functional PostgreSQL GIN indexes on `to_tsvector('english', COALESCE(raw_text, ''))` and `to_tsvector('english', COALESCE(filename, ''))` when running on PostgreSQL (`connection.vendor == 'postgresql'`).
-    * Gracefully skips execution on SQLite without syntax errors.
-  - Integrated search engine into `DocumentViewSet` in `backend/apps/documents/views.py`, preserving existing API response contracts, filtering, pagination, and custom orderings.
-  - Added 19 automated tests in `backend/tests/test_search.py` covering all 4 weighted tiers, multi-word tokens across fields, punctuation, quotes, symbols, empty queries, no-result queries, multi-line item deduplication, filter composition, pagination, explicit ordering overrides, and PostgreSQL query builder validation.
-  - Full backend test suite passing: 303 passed, 1 skipped in 37.92s across all 12 test modules.
+  - Search vector lifecycle synchronization (`backend/apps/documents/signals.py` & `search.py`):
+    * Connected Django `post_save` and `post_delete` signals on `Document`, `InvoiceExtraction`, and `LineItem` using `transaction.on_commit` deferral to prevent stale search vectors across all model mutations.
+    * Explicit synchronization hook at completion of Celery `process_document_task` in `backend/apps/documents/tasks.py`.
+  - Added migration `backend/apps/documents/migrations/0003_add_document_search_vector.py`:
+    * Adds `search_vector` (`SearchVectorField`) and GIN index `doc_search_vector_gin` to `Document`.
+    * Backfills existing documents with 4-tier weighted vectors on PostgreSQL in pure SQL, safely no-ops on SQLite.
+  - Added driver dependency: `psycopg[binary]>=3.1.0` in `backend/requirements.txt`.
+  - Added 26 automated tests in `backend/tests/test_search.py` covering all 4 weighted tiers, multi-word tokens across fields, punctuation, quotes, symbols, empty queries, no-result queries, multi-line item deduplication, filter composition, pagination, explicit ordering overrides, vector synchronization signals, and PostgreSQL query builder validation.
+  - Full backend test suite passing: 310 passed, 1 skipped in 239.17s across all 12 test modules.
 - [ ] **TASK-014**: Frontend Project Scaffolding & Layout.
 - [ ] **TASK-015**: Drag-and-Drop Batch Upload & Queue Monitor.
 - [ ] **TASK-016**: Document Inspection & Side-by-Side Review Workbench.

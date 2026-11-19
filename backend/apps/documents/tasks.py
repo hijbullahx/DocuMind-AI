@@ -434,6 +434,13 @@ def process_document_task(
                 ]
             )
 
+        # Synchronize persisted search vector on Document
+        try:
+            from apps.documents.search import update_document_search_vector
+            update_document_search_vector(doc.id)
+        except Exception as exc:
+            logger.debug(f"[Celery] Search vector synchronization note: {exc}")
+
         logger.info(
             f"[Celery] Successfully processed doc {doc.id}: status={doc.status}, "
             f"validation_status={doc.validation_status}, errors={len(validation_result.errors)}, "
