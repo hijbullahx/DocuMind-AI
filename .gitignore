@@ -54,6 +54,9 @@ token.json
 # Database & Upload Data
 *.sqlite
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 *.db
 media/
 backend/media/

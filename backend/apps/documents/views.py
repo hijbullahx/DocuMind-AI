@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from django.conf import settings
+from django.db import connection
 from django.db.models import Q
 from django.http import Http404
 from rest_framework import status, viewsets
@@ -29,6 +30,7 @@ from apps.documents.models import (
     ValidationError,
     ValidationStatusChoices,
 )
+from apps.documents.search import apply_document_search
 from apps.documents.serializers import (
     CrossReconciliationRequestSerializer,
     CrossReconciliationSerializer,
@@ -93,27 +95,25 @@ class DocumentViewSet(viewsets.ModelViewSet):
         if file_type:
             qs = qs.filter(file_type__iexact=file_type.strip())
 
-        # 4. Search query (filename, invoice_number, supplier_name)
-        search = self.request.query_params.get("search")
-        if search:
-            search_term = search.strip()
-            qs = qs.filter(
-                Q(filename__icontains=search_term)
-                | Q(extraction__invoice_number__icontains=search_term)
-                | Q(extraction__supplier_name__icontains=search_term)
-            )
-
-        # 5. Ordering
-        ordering = self.request.query_params.get("ordering", "-created_at")
+        # 4. Search query (PostgreSQL FTS or robust multi-field fallback)
+        search_query = self.request.query_params.get("search")
+        ordering_param = self.request.query_params.get("ordering")
         allowed_ordering = {
             "created_at", "-created_at",
             "filename", "-filename",
             "status", "-status",
             "file_size_bytes", "-file_size_bytes",
         }
-        if ordering in allowed_ordering:
-            qs = qs.order_by(ordering)
-        else:
+        chosen_ordering = ordering_param if ordering_param in allowed_ordering else None
+
+        if search_query:
+            qs = apply_document_search(qs, search_query, user_ordering=chosen_ordering)
+
+        # 5. Ordering
+        if chosen_ordering:
+            qs = qs.order_by(chosen_ordering)
+        elif not search_query or connection.vendor != "postgresql":
+            # In PostgreSQL search with default ordering, apply_postgres_fts orders by -search_rank
             qs = qs.order_by("-created_at")
 
         return qs

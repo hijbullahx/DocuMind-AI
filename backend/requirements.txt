@@ -15,6 +15,9 @@ reportlab>=4.0.0
 django>=5.0.0
 djangorestframework>=3.14.0
 
+# PostgreSQL Database Driver
+psycopg[binary]>=3.1.0
+
 # Background Tasks & Message Broker
 celery>=5.3.0
 redis>=5.0.0
