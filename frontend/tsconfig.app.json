@@ -16,11 +16,14 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+<<<<<<< HEAD
     /* Path Aliases */
     "paths": {
       "@/*": ["./src/*"]
     },
 
+=======
+>>>>>>> 59d0226b1fea53a8251c95a40f763b863dbbf693
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
