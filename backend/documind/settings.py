@@ -26,6 +26,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Third-party applications
+    'rest_framework',
     # DocuMind-AI Applications
     'apps.documents',
 ]
@@ -126,3 +128,21 @@ CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get('CELERY_TASK_SOFT_TIME_LIMIT', 
 # CELERY_TASK_ALWAYS_EAGER executes tasks synchronously in-process without an active Redis broker
 CELERY_TASK_ALWAYS_EAGER = os.environ.get('CELERY_TASK_ALWAYS_EAGER', 'False').lower() in ('true', '1', 'yes')
 CELERY_TASK_EAGER_PROPAGATES = True
+
+# Django REST Framework Configuration
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+}
+
+# Document Upload Security & Constraints
+MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB max document file size
+ALLOWED_DOCUMENT_EXTENSIONS = {
+    'pdf', 'png', 'jpg', 'jpeg', 'tiff', 'tif', 'xlsx', 'xls', 'csv', 'txt'
+}

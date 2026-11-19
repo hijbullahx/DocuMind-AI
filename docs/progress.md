@@ -142,7 +142,34 @@
   - Focused test suite passing: 139 passed in 29.72s (25 Celery, 29 document models, 53 validation engine, 32 cross-verifier).
   - Full backend test suite passing: 261 passed, 1 skipped (25 Celery, 32 cross-verifier, 29 document models, 26 extraction schema, 18 ingestion service, 30 LLM client, 20 OCR, 14 PDF, 14 spreadsheet, 53 validation engine).
   - Full backend test suite passing: 256 passed, 1 skipped in 22.11s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine, 32 cross-verifier, 29 document models, 20 Celery task tests).
-- [ ] **TASK-012**: Django REST Framework Endpoints.
+- [x] **TASK-012**: Django REST Framework Endpoints.
+  - Integrated `djangorestframework>=3.14.0` in `backend/requirements.txt` and registered `'rest_framework'` in `backend/documind/settings.py`.
+  - Configured REST framework defaults: PageNumberPagination (page size 20), JSON renderer, AllowAny permission baseline for development, max upload size 25 MB, and allowed document extensions (`pdf`, `png`, `jpg`, `jpeg`, `tiff`, `tif`, `xlsx`, `xls`, `csv`, `txt`).
+  - Implemented comprehensive serializers in `backend/apps/documents/serializers.py`:
+    * `LineItemSerializer`: Serializes extracted line items.
+    * `ValidationErrorSerializer`: Serializes deterministic financial validation findings and dismissal status.
+    * `AuditLogSerializer`: Serializes immutable audit history entries.
+    * `InvoiceExtractionSerializer`: Serializes structured financial extraction results with nested line items.
+    * `DocumentListSerializer`: Lightweight document summary serializer.
+    * `DocumentDetailSerializer`: Full detail serializer with nested extraction, line items, validation errors, and audit logs.
+    * `DocumentStatusSerializer`: Lightweight polling serializer for tracking ingestion/validation state.
+    * `DocumentUploadSerializer`: Server-side file validation (size $\le 25\text{MB}$, allowed extensions, non-empty content).
+    * `DocumentReprocessSerializer`: Validates retry and force reprocessing requests.
+    * `CrossReconciliationRequestSerializer` & `CrossReconciliationSerializer`: Paired document verification request validation and result serialization.
+  - Implemented REST viewsets in `backend/apps/documents/views.py`:
+    * `DocumentViewSet`:
+      - `POST /api/documents/`: Upload document or raw text, enqueue `process_document_task.delay(doc_id)`.
+      - `GET /api/documents/`: Paginated list, filterable by `status`, `validation_status`, `file_type`, search by `filename`/`invoice_number`/`supplier_name`, and ordered by `created_at`.
+      - `GET /api/documents/{id}/`: Comprehensive detail view with nested extraction, line items, validation errors, and audit history.
+      - `GET /api/documents/{id}/status/`: Lightweight polling endpoint.
+      - `POST /api/documents/{id}/reprocess/`: Reprocessing/retry endpoint with active-processing conflict guard (409) and force authorization requirement.
+    * `CrossReconciliationViewSet`:
+      - `POST /api/reconciliations/`: Trigger paired document cross-verification using `reconcile_documents_task`.
+      - `GET /api/reconciliations/` & `GET /api/reconciliations/{id}/`: List and retrieve cross-reconciliation findings and discrepancy reports.
+  - Routed API endpoints via `apps.documents.urls` registered at `path('api/', include('apps.documents.urls'))` in `backend/documind/urls.py`.
+  - Added 23 automated unit tests in `backend/tests/test_document_api.py` covering uploads, constraints, pagination, filtering, search, detail inspection, status polling, reprocessing, and cross-reconciliation.
+  - Focused test suite passing: 162 passed in 18.42s (23 document API, 25 Celery, 29 document models, 53 validation engine, 32 cross-verifier).
+  - Full backend test suite passing: 284 passed, 1 skipped.
 - [ ] **TASK-013**: PostgreSQL Full-Text Search (FTS).
 - [ ] **TASK-014**: Frontend Project Scaffolding & Layout.
 - [ ] **TASK-015**: Drag-and-Drop Batch Upload & Queue Monitor.
