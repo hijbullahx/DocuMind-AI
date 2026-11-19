@@ -128,7 +128,20 @@
   - Generated and verified reproducible initial migration `apps/documents/migrations/0001_initial.py`.
   - Added 29 automated unit tests in `backend/tests/test_document_models.py` covering model creation, UUID keys, Decimal financial precision, status choices and transition save enforcement, metadata JSON storage, cascade deletions, review dismissals, immutable audit logs, 1:1 extraction uniqueness, self-reconciliation prevention, Pydantic integration compatibility, and migration reproducibility.
   - Full backend test suite passing: 236 passed, 1 skipped in 13.81s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine, 32 cross-verifier, 29 document models tests).
-- [ ] **TASK-011**: Celery Async Task Worker & Redis Integration.
+- [x] **TASK-011**: Celery Async Task Worker & Redis Integration.
+  - Configured Celery application `documind.celery.app` and exposed `celery_app` in `backend/documind/__init__.py`.
+  - Configured environment-driven Redis broker and backend in `backend/documind/settings.py` (`CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`), with strict JSON serializers, task limits (300s hard / 240s soft), and Windows concurrency guard documentation (`--pool=solo` / `--pool=threads`).
+  - Added `celery>=5.3.0` and `redis>=5.0.0` to `backend/requirements.txt`.
+  - Implemented asynchronous Celery tasks in `backend/apps/documents/tasks.py`:
+    * `process_document_task(document_id, force=False, provider=None, canned_response=None)`: End-to-end background orchestration connecting Document Ingestion (`DocumentIngestionService`), AI Financial Extraction (`LLMExtractionClient`), Deterministic Validation (`ValidationEngine`), and atomic database persistence (`InvoiceExtraction`, `LineItem`, `ValidationError`).
+    * `reconcile_documents_task(doc_a_id, doc_b_id, tolerance=None)`: Asynchronous paired document cross-verification (`CrossDocumentVerifier`), recording discrepancies, match counts, and persisting `CrossReconciliation` records.
+    * Added atomic conditional database update claims: eliminates multi-worker race conditions on `QUEUED` documents using database-level `UPDATE ... WHERE status = 'QUEUED'`, ensuring only the winning worker claims the document while competing workers return safe non-processing rejections.
+    * Added concurrency-safe forced reprocessing (`force=True`): rejects claims if another worker is actively in `PROCESSING` status, preventing duplicate concurrent processing runs while preserving immutable `AuditLog` creation.
+    * Added comprehensive error isolation: handles corrupted documents, invalid UUID formats, and missing files with graceful `FAILED` status transitions without unhandled worker crashes.
+  - Added 25 automated unit tests in `backend/tests/test_celery_tasks.py` with `CELERY_TASK_ALWAYS_EAGER=True` covering atomic claims, competing worker rejection, repeated task submission idempotency, active processing rejection, forced reprocessing safety, failure handling, and cross-document reconciliation.
+  - Focused test suite passing: 139 passed in 29.72s (25 Celery, 29 document models, 53 validation engine, 32 cross-verifier).
+  - Full backend test suite passing: 261 passed, 1 skipped (25 Celery, 32 cross-verifier, 29 document models, 26 extraction schema, 18 ingestion service, 30 LLM client, 20 OCR, 14 PDF, 14 spreadsheet, 53 validation engine).
+  - Full backend test suite passing: 256 passed, 1 skipped in 22.11s (14 PDF, 20 OCR, 14 spreadsheet, 18 ingestion service, 26 extraction schema, 30 LLM client, 53 validation engine, 32 cross-verifier, 29 document models, 20 Celery task tests).
 - [ ] **TASK-012**: Django REST Framework Endpoints.
 - [ ] **TASK-013**: PostgreSQL Full-Text Search (FTS).
 - [ ] **TASK-014**: Frontend Project Scaffolding & Layout.

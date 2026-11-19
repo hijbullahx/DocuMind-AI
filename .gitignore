@@ -1,4 +1,4 @@
-﻿# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -55,6 +55,8 @@ token.json
 *.sqlite
 *.sqlite3
 *.db
+media/
+backend/media/
 data/uploads/*
 !data/uploads/.gitkeep
 data/processed/*
