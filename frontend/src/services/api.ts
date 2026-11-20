@@ -7,7 +7,8 @@ import type {
   DocumentDetail,
   DocumentListItem,
   PaginatedResponse,
-} from '@/types/document'
+} from '../types/document.ts'
+import type { DocumentStatusResponse, ReprocessResponse } from '../types/upload.ts'
 
 const API_BASE = '/api'
 
@@ -80,6 +81,101 @@ export const api = {
     } catch {
       return { isConnected: false, message: 'Backend offline' }
     }
+  },
+
+  /**
+   * Uploads a document via multipart/form-data with byte-level progress reporting.
+   * Uses XMLHttpRequest to track accurate file transmission progress.
+   */
+  uploadDocument(
+    file: File,
+    onProgress?: (percent: number) => void,
+    abortSignal?: AbortSignal
+  ): Promise<DocumentListItem> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const formData = new FormData()
+      formData.append('file', file)
+
+      if (abortSignal) {
+        if (abortSignal.aborted) {
+          reject(new ApiError('Upload cancelled by operator', 0))
+          return
+        }
+        abortSignal.addEventListener('abort', () => {
+          xhr.abort()
+          reject(new ApiError('Upload cancelled by operator', 0))
+        })
+      }
+
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            const percent = Math.min(100, Math.round((event.loaded / event.total) * 100))
+            onProgress(percent)
+          }
+        }
+      }
+
+      xhr.onload = () => {
+        let responseData: unknown = null
+        try {
+          responseData = JSON.parse(xhr.responseText)
+        } catch {
+          responseData = xhr.responseText
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(responseData as DocumentListItem)
+        } else {
+          let errorMsg = `Upload failed with status ${xhr.status}`
+          if (responseData && typeof responseData === 'object') {
+            const errObj = responseData as Record<string, unknown>
+            if (Array.isArray(errObj.file) && errObj.file.length > 0) {
+              errorMsg = String(errObj.file[0])
+            } else if (errObj.error) {
+              errorMsg = String(errObj.error)
+            } else if (errObj.detail) {
+              errorMsg = String(errObj.detail)
+            }
+          }
+          reject(new ApiError(errorMsg, xhr.status, responseData))
+        }
+      }
+
+      xhr.onerror = () => {
+        reject(new ApiError('Network connection failed during upload. Check backend connectivity.', 0))
+      }
+
+      xhr.ontimeout = () => {
+        reject(new ApiError('Upload timed out. The server took too long to respond.', 0))
+      }
+
+      xhr.open('POST', `${API_BASE}/documents/`, true)
+      xhr.setRequestHeader('Accept', 'application/json')
+      xhr.timeout = 60000 // 60s timeout for upload
+      xhr.send(formData)
+    })
+  },
+
+  /**
+   * Polls lightweight document status for active processing jobs.
+   */
+  async getDocumentStatus(id: string): Promise<DocumentStatusResponse> {
+    return request<DocumentStatusResponse>(`/documents/${id}/status/`)
+  },
+
+  /**
+   * Requests reprocessing / retry for a failed or existing document.
+   */
+  async reprocessDocument(id: string, force = false): Promise<ReprocessResponse> {
+    return request<ReprocessResponse>(`/documents/${id}/reprocess/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ force }),
+    })
   },
 
   /**

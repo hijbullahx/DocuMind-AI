@@ -42,8 +42,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       key: 'upload',
       label: 'Batch Upload & Queue',
       icon: <UploadCloud className="w-5 h-5" />,
-      tag: 'TASK-015',
-      isPlanned: true,
     },
     {
       key: 'review',

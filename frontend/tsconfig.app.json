@@ -4,7 +4,7 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
@@ -16,14 +16,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-<<<<<<< HEAD
     /* Path Aliases */
     "paths": {
       "@/*": ["./src/*"]
     },
 
-=======
->>>>>>> 59d0226b1fea53a8251c95a40f763b863dbbf693
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
