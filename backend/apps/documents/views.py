@@ -251,6 +251,54 @@ class DocumentViewSet(viewsets.ModelViewSet):
             status=status.HTTP_202_ACCEPTED,
         )
 
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request: Request) -> Response:
+        """
+        Dedicated full-text document and extraction search endpoint (TASK-019).
+        Searches across:
+        - Filename & Document Metadata (Tier A)
+        - Extracted Invoice Number (Tier A)
+        - Supplier & Customer Names (Tier B)
+        - Line Item Descriptions & Addresses (Tier C)
+        - Raw OCR Content (Tier D)
+        Returns relevance-ranked results with bounded, XSS-safe highlighted snippets.
+        """
+        from apps.documents.search import search_documents_service
+
+        q = request.query_params.get("q", "")
+        status_filter = request.query_params.get("status")
+        val_status_filter = request.query_params.get("validation_status")
+        file_type_filter = request.query_params.get("file_type")
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        supplier_filter = request.query_params.get("supplier")
+        customer_filter = request.query_params.get("customer")
+
+        try:
+            page = max(1, int(request.query_params.get("page", 1)))
+        except (ValueError, TypeError):
+            page = 1
+
+        try:
+            page_size = min(50, max(1, int(request.query_params.get("page_size", 10))))
+        except (ValueError, TypeError):
+            page_size = 10
+
+        search_payload = search_documents_service(
+            search_query=q,
+            status_filter=status_filter,
+            validation_status_filter=val_status_filter,
+            file_type_filter=file_type_filter,
+            date_from=date_from,
+            date_to=date_to,
+            supplier_filter=supplier_filter,
+            customer_filter=customer_filter,
+            page=page,
+            page_size=page_size,
+        )
+
+        return Response(search_payload, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=["post"], url_path="correct")
     def correct(self, request: Request, pk=None) -> Response:
         """

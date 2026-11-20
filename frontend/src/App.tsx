@@ -7,6 +7,7 @@ import { DashboardOverview } from '@/views/DashboardOverview'
 import { BatchUploadView } from '@/views/BatchUploadView'
 import { ReviewWorkbenchView } from '@/views/ReviewWorkbenchView'
 import { ReconciliationView } from '@/views/ReconciliationView'
+import { SearchView } from '@/views/SearchView'
 import { ModulePlaceholderView } from '@/views/ModulePlaceholderView'
 
 export function App() {
@@ -86,6 +87,13 @@ export function App() {
         />
       ) : currentView === 'reconcile' ? (
         <ReconciliationView />
+      ) : currentView === 'search' ? (
+        <SearchView
+          onNavigateToReview={(id) => {
+            setSelectedDocumentIdForReview(id)
+            setCurrentView('review')
+          }}
+        />
       ) : (
         <ModulePlaceholderView moduleKey={currentView} />
       )}

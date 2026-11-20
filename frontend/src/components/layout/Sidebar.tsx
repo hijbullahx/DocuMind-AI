@@ -59,8 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       key: 'search',
       label: 'Full-Text Search',
       icon: <Search className="w-5 h-5" />,
-      tag: 'TASK-018',
-      isPlanned: true,
+      tag: 'TASK-019',
     },
   ]
 

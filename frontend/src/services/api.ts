@@ -13,6 +13,10 @@ import type {
   ReconciliationRecord,
   ReconciliationRequestPayload,
 } from '../types/reconciliation.ts'
+import type {
+  SearchQueryParams,
+  SearchResponse,
+} from '../types/search.ts'
 import type { DocumentStatusResponse, ReprocessResponse } from '../types/upload.ts'
 
 const API_BASE = '/api'
@@ -328,5 +332,25 @@ export const api = {
       },
       body,
     })
+  },
+
+  /**
+   * TASK-019: Executes full-text search across documents and extractions.
+   */
+  async searchDocuments(params: SearchQueryParams): Promise<SearchResponse> {
+    const searchParams = new URLSearchParams()
+    if (params.q) searchParams.set('q', params.q)
+    if (params.status) searchParams.set('status', params.status)
+    if (params.validation_status) searchParams.set('validation_status', params.validation_status)
+    if (params.file_type) searchParams.set('file_type', params.file_type)
+    if (params.date_from) searchParams.set('date_from', params.date_from)
+    if (params.date_to) searchParams.set('date_to', params.date_to)
+    if (params.supplier) searchParams.set('supplier', params.supplier)
+    if (params.customer) searchParams.set('customer', params.customer)
+    if (params.page) searchParams.set('page', String(params.page))
+    if (params.page_size) searchParams.set('page_size', String(params.page_size))
+
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return request<SearchResponse>(`/documents/search/${qs}`)
   },
 }
