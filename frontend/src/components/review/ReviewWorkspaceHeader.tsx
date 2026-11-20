@@ -3,13 +3,17 @@ import {
   ArrowLeft,
   CheckCircle2,
   Columns,
+  Edit3,
   FileText,
   Layout,
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
   RotateCcw,
+  Save,
   Sparkles,
+  Undo2,
+  X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -29,6 +33,18 @@ export interface ReviewWorkspaceHeaderProps {
   isReprocessing: boolean
   reprocessMessage: string | null
   reprocessError: string | null
+
+  // TASK-017: Edit & Correction Actions
+  isEditMode?: boolean
+  onToggleEditMode?: () => void
+  isDirty?: boolean
+  dirtyFieldCount?: number
+  isSavingCorrection?: boolean
+  correctionSuccessMessage?: string | null
+  correctionError?: string | null
+  onSaveCorrections?: (operator?: string) => Promise<boolean>
+  onCancelEditing?: () => void
+
   onNavigateBack?: () => void
   className?: string
 }
@@ -44,10 +60,21 @@ export const ReviewWorkspaceHeader: React.FC<ReviewWorkspaceHeaderProps> = ({
   isReprocessing,
   reprocessMessage,
   reprocessError,
+  isEditMode = false,
+  onToggleEditMode,
+  isDirty = false,
+  dirtyFieldCount = 0,
+  isSavingCorrection = false,
+  correctionSuccessMessage = null,
+  correctionError = null,
+  onSaveCorrections,
+  onCancelEditing,
   onNavigateBack,
   className = '',
 }) => {
   const [showConfirmReprocess, setShowConfirmReprocess] = useState(false)
+  const [showSavePrompt, setShowSavePrompt] = useState(false)
+  const [operatorReason, setOperatorReason] = useState('')
 
   if (!document) {
     return (
@@ -73,10 +100,25 @@ export const ReviewWorkspaceHeader: React.FC<ReviewWorkspaceHeaderProps> = ({
   }
 
   const confidence = formatConfidence(document.extraction?.confidence_score)
+  const isProcessing = document.status === 'PROCESSING' || document.status === 'QUEUED'
 
   const handleConfirmReprocess = async () => {
     setShowConfirmReprocess(false)
     await onReprocess(true)
+  }
+
+  const handleSaveClick = () => {
+    setShowSavePrompt(true)
+  }
+
+  const handleConfirmSave = async () => {
+    if (onSaveCorrections) {
+      const success = await onSaveCorrections(operatorReason.trim() || undefined)
+      if (success) {
+        setShowSavePrompt(false)
+        setOperatorReason('')
+      }
+    }
   }
 
   return (
@@ -193,53 +235,169 @@ export const ReviewWorkspaceHeader: React.FC<ReviewWorkspaceHeaderProps> = ({
           </button>
 
           {/* Reprocess Trigger Button */}
-          <div className="relative">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowConfirmReprocess((v) => !v)}
-              isLoading={isReprocessing}
-              leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
-              className="text-xs"
-            >
-              Reprocess
-            </Button>
+          {!isEditMode && (
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowConfirmReprocess((v) => !v)}
+                isLoading={isReprocessing}
+                leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
+                className="text-xs"
+              >
+                Reprocess
+              </Button>
 
-            {/* Reprocess Confirmation Popover */}
-            {showConfirmReprocess && (
-              <div className="absolute right-0 top-full mt-2 w-72 p-3 bg-slate-950 border border-slate-800 rounded-xl shadow-xl z-50 space-y-2 text-xs">
-                <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                  <RotateCcw className="w-3.5 h-3.5 text-brand-400" />
-                  <span>Reprocess this document?</span>
+              {/* Reprocess Confirmation Popover */}
+              {showConfirmReprocess && (
+                <div className="absolute right-0 top-full mt-2 w-72 p-3 bg-slate-950 border border-slate-800 rounded-xl shadow-xl z-50 space-y-2 text-xs">
+                  <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <RotateCcw className="w-3.5 h-3.5 text-brand-400" />
+                    <span>Reprocess this document?</span>
+                  </div>
+                  <p className="text-slate-400 leading-relaxed text-[11px]">
+                    This will re-enqueue async Celery OCR extraction, entity parsing, and arithmetic validation.
+                  </p>
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowConfirmReprocess(false)}
+                      className="text-xs px-2 py-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleConfirmReprocess}
+                      className="text-xs px-2.5 py-1"
+                    >
+                      Confirm Reprocess
+                    </Button>
+                  </div>
                 </div>
-                <p className="text-slate-400 leading-relaxed text-[11px]">
-                  This will re-enqueue async Celery OCR extraction, entity parsing, and arithmetic validation.
-                </p>
-                <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
+              )}
+            </div>
+          )}
+
+          {/* TASK-017: Manual Correction Controls */}
+          {!isProcessing && (
+            <>
+              {!isEditMode ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={onToggleEditMode}
+                  leftIcon={<Edit3 className="w-3.5 h-3.5" />}
+                  className="text-xs bg-brand-600 hover:bg-brand-500 text-white"
+                  title="Enable manual correction of extracted entities and line items"
+                >
+                  Edit Corrections
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {/* Unsaved changes badge */}
+                  <span
+                    className={`px-2 py-1 rounded-md text-[11px] font-mono flex items-center gap-1.5 border ${
+                      isDirty
+                        ? 'bg-amber-950/70 text-amber-300 border-amber-700/80'
+                        : 'bg-slate-800/80 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'}`} />
+                    <span>{isDirty ? `Unsaved (${dirtyFieldCount})` : 'No changes'}</span>
+                  </span>
+
+                  {/* Cancel editing button */}
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    onClick={() => setShowConfirmReprocess(false)}
-                    className="text-xs px-2 py-1"
+                    onClick={onCancelEditing}
+                    leftIcon={<Undo2 className="w-3.5 h-3.5" />}
+                    className="text-xs text-slate-300 border-slate-700"
                   >
                     Cancel
                   </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleConfirmReprocess}
-                    className="text-xs px-2.5 py-1"
-                  >
-                    Confirm Reprocess
-                  </Button>
+
+                  {/* Save button with Popover */}
+                  <div className="relative">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSaveClick}
+                      disabled={!isDirty || isSavingCorrection}
+                      isLoading={isSavingCorrection}
+                      leftIcon={<Save className="w-3.5 h-3.5" />}
+                      className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                    >
+                      Save Corrections
+                    </Button>
+
+                    {showSavePrompt && (
+                      <div className="absolute right-0 top-full mt-2 w-80 p-3.5 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl z-50 space-y-3 text-xs">
+                        <div className="font-semibold text-slate-100 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Save className="w-4 h-4 text-emerald-400" />
+                            <span>Save Manual Corrections</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowSavePrompt(false)}
+                            className="text-slate-400 hover:text-slate-200"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <p className="text-slate-400 text-[11px] leading-relaxed">
+                          Applying these modifications will update the structured extraction, recalculate validation findings, and write an immutable audit log.
+                        </p>
+
+                        <div>
+                          <label className="text-[10px] text-slate-300 uppercase font-medium block mb-1">
+                            Reason for modification (optional)
+                          </label>
+                          <input
+                            type="text"
+                            aria-label="Reason for modification"
+                            value={operatorReason}
+                            onChange={(e) => setOperatorReason(e.target.value)}
+                            placeholder="e.g. Corrected subtotal OCR typo"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-brand-500"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowSavePrompt(false)}
+                            className="text-xs px-2.5 py-1 text-slate-400"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={handleConfirmSave}
+                            isLoading={isSavingCorrection}
+                            className="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+                          >
+                            Confirm & Save
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Notifications row for reprocess status */}
+      {/* Notifications row for reprocess status and correction status */}
       {reprocessMessage && (
         <div className="text-[11px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-900/60 px-3 py-1.5 rounded-lg flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
@@ -250,6 +408,19 @@ export const ReviewWorkspaceHeader: React.FC<ReviewWorkspaceHeaderProps> = ({
       {reprocessError && (
         <div className="text-[11px] font-mono text-rose-400 bg-rose-950/40 border border-rose-900/60 px-3 py-1.5 rounded-lg">
           {reprocessError}
+        </div>
+      )}
+
+      {correctionSuccessMessage && (
+        <div className="text-[11px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-900/60 px-3 py-1.5 rounded-lg flex items-center gap-2">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          <span>{correctionSuccessMessage}</span>
+        </div>
+      )}
+
+      {correctionError && (
+        <div className="text-[11px] font-mono text-rose-400 bg-rose-950/40 border border-rose-900/60 px-3 py-1.5 rounded-lg">
+          {correctionError}
         </div>
       )}
     </div>

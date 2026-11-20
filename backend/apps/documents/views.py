@@ -10,9 +10,10 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Q
 from django.http import Http404
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -27,6 +28,7 @@ from apps.documents.models import (
     Document,
     DocumentStatus,
     InvoiceExtraction,
+    LineItem,
     ValidationError,
     ValidationStatusChoices,
 )
@@ -34,6 +36,7 @@ from apps.documents.search import apply_document_search
 from apps.documents.serializers import (
     CrossReconciliationRequestSerializer,
     CrossReconciliationSerializer,
+    DocumentCorrectionSerializer,
     DocumentDetailSerializer,
     DocumentListSerializer,
     DocumentReprocessSerializer,
@@ -130,6 +133,8 @@ class DocumentViewSet(viewsets.ModelViewSet):
             return DocumentStatusSerializer
         elif self.action == "reprocess":
             return DocumentReprocessSerializer
+        elif self.action == "correct":
+            return DocumentCorrectionSerializer
         return DocumentDetailSerializer
 
     def get_object(self) -> Document:
@@ -245,6 +250,232 @@ class DocumentViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @action(detail=True, methods=["post"], url_path="correct")
+    def correct(self, request: Request, pk=None) -> Response:
+        """
+        Applies validated operator manual corrections to structured invoice extraction and line items.
+        Records an immutable audit trail entry for every changed field, re-evaluates validation rules,
+        and atomically persists the updated document state.
+        """
+        doc = self.get_object()
+
+        # 1. Guard against active processing
+        if doc.status == DocumentStatus.PROCESSING:
+            return Response(
+                {
+                    "error": "Document is currently being processed. Cannot apply manual corrections during active processing.",
+                    "document_id": str(doc.id),
+                    "status": doc.status,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # 2. Guard against missing extraction
+        extraction = getattr(doc, "extraction", None)
+        if not extraction:
+            return Response(
+                {
+                    "error": f"Document '{doc.filename}' does not have a structured extraction record. Only extracted documents can be corrected.",
+                    "document_id": str(doc.id),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. Validate correction payload
+        serializer = DocumentCorrectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        operator = data.get("operator") or (request.user.username if request.user and request.user.is_authenticated else "operator")
+        reason = data.get("reason") or "Manual operator correction"
+
+        # 4. Atomic transactional persistence and audit recording
+        with transaction.atomic():
+            doc = Document.objects.select_for_update().get(id=doc.id)
+            extraction = InvoiceExtraction.objects.select_for_update().get(id=doc.extraction.id)
+
+            # Snapshot original machine extraction if not already preserved
+            metadata = dict(doc.metadata or {})
+            manual_corr = dict(metadata.get("manual_corrections") or {})
+            if "original_extraction" not in manual_corr:
+                manual_corr["original_extraction"] = {
+                    "invoice_number": extraction.invoice_number,
+                    "invoice_date": str(extraction.invoice_date) if extraction.invoice_date else None,
+                    "due_date": str(extraction.due_date) if extraction.due_date else None,
+                    "supplier_name": extraction.supplier_name,
+                    "supplier_address": extraction.supplier_address,
+                    "customer_name": extraction.customer_name,
+                    "customer_address": extraction.customer_address,
+                    "subtotal": str(extraction.subtotal) if extraction.subtotal is not None else None,
+                    "tax": str(extraction.tax) if extraction.tax is not None else None,
+                    "total": str(extraction.total) if extraction.total is not None else None,
+                    "currency": extraction.currency,
+                }
+
+            changed_fields: List[str] = []
+            header_fields = [
+                "invoice_number", "invoice_date", "due_date",
+                "supplier_name", "supplier_address",
+                "customer_name", "customer_address",
+                "subtotal", "tax", "total", "currency"
+            ]
+
+            for field in header_fields:
+                if field in data:
+                    old_val = getattr(extraction, field)
+                    new_val = data[field]
+
+                    is_different = False
+                    if old_val != new_val:
+                        if isinstance(old_val, Decimal) and new_val is not None:
+                            try:
+                                is_different = Decimal(str(old_val)) != Decimal(str(new_val))
+                            except Exception:
+                                is_different = True
+                        else:
+                            is_different = True
+
+                    if is_different:
+                        setattr(extraction, field, new_val)
+                        AuditLog.objects.create(
+                            document=doc,
+                            user_id=operator,
+                            action="MANUAL_CORRECTION",
+                            field_name=field,
+                            old_value=str(old_val) if old_val is not None else None,
+                            new_value=str(new_val) if new_val is not None else None,
+                            reason=reason,
+                        )
+                        changed_fields.append(field)
+
+            # Process line items if provided in payload
+            if "line_items" in data:
+                old_items = list(extraction.line_items.all().order_by("line_number"))
+                new_items_data = data["line_items"]
+
+                line_items_changed = False
+                if len(old_items) != len(new_items_data):
+                    line_items_changed = True
+                else:
+                    for old_it, new_it in zip(old_items, new_items_data):
+                        old_qty = old_it.quantity
+                        new_qty = new_it.get("quantity")
+                        old_price = old_it.unit_price
+                        new_price = new_it.get("unit_price")
+                        old_amt = old_it.amount
+                        new_amt = new_it.get("amount")
+
+                        if (
+                            old_it.description != new_it["description"]
+                            or old_qty != new_qty
+                            or old_price != new_price
+                            or old_amt != new_amt
+                        ):
+                            line_items_changed = True
+                            break
+
+                if line_items_changed:
+                    old_sum = sum((it.amount or Decimal("0.00")) for it in old_items)
+                    new_sum = sum((it.get("amount") or Decimal("0.00")) for it in new_items_data)
+                    old_summary = f"{len(old_items)} line items (total: {old_sum})"
+                    new_summary = f"{len(new_items_data)} line items (total: {new_sum})"
+
+                    AuditLog.objects.create(
+                        document=doc,
+                        user_id=operator,
+                        action="MANUAL_CORRECTION",
+                        field_name="line_items",
+                        old_value=old_summary,
+                        new_value=new_summary,
+                        reason=reason,
+                    )
+
+                    extraction.line_items.all().delete()
+                    for idx, item_data in enumerate(new_items_data, start=1):
+                        LineItem.objects.create(
+                            extraction=extraction,
+                            line_number=idx,
+                            description=item_data["description"],
+                            quantity=item_data.get("quantity"),
+                            unit_price=item_data.get("unit_price"),
+                            amount=item_data.get("amount"),
+                        )
+                    changed_fields.append("line_items")
+
+            # Update Document metadata with correction tracking
+            if changed_fields:
+                manual_corr["is_corrected"] = True
+                manual_corr["last_corrected_at"] = timezone.now().isoformat()
+                manual_corr["last_corrected_by"] = operator
+                existing_corrected = set(manual_corr.get("corrected_fields") or [])
+                manual_corr["corrected_fields"] = sorted(list(existing_corrected.union(changed_fields)))
+                metadata["manual_corrections"] = manual_corr
+                doc.metadata = metadata
+                doc.save(update_fields=["metadata", "updated_at"])
+                extraction.save()
+
+            # 5. Re-evaluate deterministic validation rules
+            try:
+                from apps.validation.engine import ValidationEngine
+                val_engine = ValidationEngine()
+                val_payload = {
+                    "invoice_number": extraction.invoice_number,
+                    "invoice_date": str(extraction.invoice_date) if extraction.invoice_date else None,
+                    "due_date": str(extraction.due_date) if extraction.due_date else None,
+                    "supplier_name": extraction.supplier_name,
+                    "supplier_address": extraction.supplier_address,
+                    "customer_name": extraction.customer_name,
+                    "customer_address": extraction.customer_address,
+                    "subtotal": extraction.subtotal,
+                    "tax": extraction.tax,
+                    "total": extraction.total,
+                    "currency": extraction.currency,
+                    "line_items": [
+                        {
+                            "description": item.description,
+                            "quantity": item.quantity,
+                            "unit_price": item.unit_price,
+                            "amount": item.amount,
+                        }
+                        for item in extraction.line_items.all().order_by("line_number")
+                    ],
+                    "raw_text_evidence": extraction.raw_text_evidence or {},
+                }
+                val_result = val_engine.validate(val_payload)
+
+                # Delete un-dismissed validation errors
+                ValidationError.objects.filter(document=doc, is_dismissed=False).delete()
+                for issue in (val_result.errors + val_result.warnings):
+                    ValidationError.objects.create(
+                        document=doc,
+                        rule_id=str(issue.rule_id),
+                        field=issue.field or "",
+                        message=issue.message,
+                        severity=issue.severity.value if hasattr(issue.severity, "value") else str(issue.severity),
+                        actual_value=str(issue.actual) if issue.actual is not None else None,
+                        expected_value=str(issue.expected) if issue.expected is not None else None,
+                        difference=issue.difference,
+                    )
+                doc.validation_status = val_result.status.value
+                doc.save(update_fields=["validation_status", "updated_at"])
+            except Exception as val_exc:
+                logger.warning(f"[API] Validation re-evaluation note: {val_exc}")
+
+            # 6. Synchronize full-text search vector
+            try:
+                from apps.documents.search import update_document_search_vector
+                update_document_search_vector(doc.id)
+            except Exception as search_exc:
+                logger.debug(f"[API] Search vector synchronization note: {search_exc}")
+
+        # 7. Return complete updated document entity
+        doc_detail = Document.objects.select_related("extraction").prefetch_related(
+            "extraction__line_items",
+            "validation_errors",
+            "audit_logs",
+        ).get(id=doc.id)
+        return Response(DocumentDetailSerializer(doc_detail).data, status=status.HTTP_200_OK)
 
 
 class CrossReconciliationViewSet(viewsets.ModelViewSet):

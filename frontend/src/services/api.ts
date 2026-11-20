@@ -4,6 +4,7 @@
  */
 import type {
   DashboardMetrics,
+  DocumentCorrectionPayload,
   DocumentDetail,
   DocumentListItem,
   PaginatedResponse,
@@ -208,6 +209,22 @@ export const api = {
    */
   async getDocumentDetail(id: string): Promise<DocumentDetail> {
     return request<DocumentDetail>(`/documents/${id}/`)
+  },
+
+  /**
+   * Persists manual operator corrections to document extraction and line items.
+   */
+  async correctDocument(
+    id: string,
+    payload: DocumentCorrectionPayload
+  ): Promise<DocumentDetail> {
+    return request<DocumentDetail>(`/documents/${id}/correct/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
   },
 
   /**

@@ -14,7 +14,7 @@ import {
   formatDate,
   formatDateTime,
 } from '../utils/formatters.ts'
-import type { ValidationError, ValidationSeverity } from '../types/document.ts'
+import type { ValidationError } from '../types/document.ts'
 
 describe('TASK-016: Formatting & Display Utilities', () => {
   it('formats currency with default USD symbol and 2 decimal places', () => {

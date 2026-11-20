@@ -111,3 +111,37 @@ export interface DashboardMetrics {
   needsReview: number
   failed: number
 }
+
+export interface LineItemCorrectionPayload {
+  id?: string | null
+  line_number?: number
+  description: string
+  quantity?: number | string | null
+  unit_price?: number | string | null
+  amount?: number | string | null
+}
+
+export interface DocumentCorrectionPayload {
+  invoice_number?: string | null
+  invoice_date?: string | null
+  due_date?: string | null
+  supplier_name?: string | null
+  supplier_address?: string | null
+  customer_name?: string | null
+  customer_address?: string | null
+  subtotal?: number | string | null
+  tax?: number | string | null
+  total?: number | string | null
+  currency?: string | null
+  line_items?: LineItemCorrectionPayload[]
+  reason?: string
+  operator?: string
+}
+
+export interface ManualCorrectionsMetadata {
+  is_corrected?: boolean
+  last_corrected_at?: string
+  last_corrected_by?: string
+  original_extraction?: Record<string, string | null>
+  corrected_fields?: string[]
+}

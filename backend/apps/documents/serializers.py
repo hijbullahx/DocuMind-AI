@@ -282,6 +282,42 @@ class CrossReconciliationRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class LineItemCorrectionSerializer(serializers.Serializer):
+    """Input serializer for line item manual creation or editing."""
+    id = serializers.UUIDField(required=False, allow_null=True)
+    line_number = serializers.IntegerField(required=False, min_value=1)
+    description = serializers.CharField(required=True, allow_blank=False)
+    quantity = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True)
+    unit_price = serializers.DecimalField(max_digits=14, decimal_places=4, required=False, allow_null=True)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+
+
+class DocumentCorrectionSerializer(serializers.Serializer):
+    """Input serializer for manual operator correction of invoice headers and line items."""
+    invoice_number = serializers.CharField(max_length=128, required=False, allow_null=True, allow_blank=True)
+    invoice_date = serializers.DateField(required=False, allow_null=True)
+    due_date = serializers.DateField(required=False, allow_null=True)
+    supplier_name = serializers.CharField(max_length=255, required=False, allow_null=True, allow_blank=True)
+    supplier_address = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    customer_name = serializers.CharField(max_length=255, required=False, allow_null=True, allow_blank=True)
+    customer_address = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    subtotal = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    tax = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    total = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    currency = serializers.CharField(max_length=16, required=False, allow_null=True, allow_blank=True)
+    line_items = LineItemCorrectionSerializer(many=True, required=False)
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="Manual operator correction")
+    operator = serializers.CharField(max_length=128, required=False, allow_blank=True, default="operator")
+
+    def validate_currency(self, value):
+        if value is not None:
+            cleaned = value.strip().upper()
+            if len(cleaned) > 16:
+                raise serializers.ValidationError("Currency code or symbol cannot exceed 16 characters.")
+            return cleaned
+        return value
+
+
 class CrossReconciliationSerializer(serializers.ModelSerializer):
     """Serializes paired document reconciliation findings, match counts, and status."""
 

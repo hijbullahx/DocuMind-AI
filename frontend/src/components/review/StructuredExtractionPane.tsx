@@ -4,8 +4,8 @@ import { HeaderEntitiesCard } from './HeaderEntitiesCard'
 import { LineItemsTable } from './LineItemsTable'
 import { ValidationFindingsList } from './ValidationFindingsList'
 import { AuditHistoryCard } from './AuditHistoryCard'
-import type { ReviewTab } from '@/hooks/useDocumentReview'
-import type { DocumentDetail } from '@/types/document'
+import type { EditableExtractionDraft, ReviewTab } from '@/hooks/useDocumentReview'
+import type { DocumentDetail, LineItemCorrectionPayload } from '@/types/document'
 
 export interface StructuredExtractionPaneProps {
   document: DocumentDetail
@@ -13,6 +13,23 @@ export interface StructuredExtractionPaneProps {
   onTabChange: (tab: ReviewTab) => void
   activeEvidenceKey: string | null
   onHighlightEvidence: (key: string, quote: string | null) => void
+
+  // TASK-017: Edit & Correction Props
+  isEditMode?: boolean
+  draft?: EditableExtractionDraft
+  onUpdateDraftField?: (
+    field: keyof Omit<EditableExtractionDraft, 'line_items'>,
+    value: string | number | null
+  ) => void
+  onAutoCalculateTotal?: () => void
+  onUpdateDraftLineItem?: (
+    index: number,
+    updatedItem: Partial<LineItemCorrectionPayload>
+  ) => void
+  onAddDraftLineItem?: () => void
+  onRemoveDraftLineItem?: (index: number) => void
+  onApplyCalculatedSubtotal?: () => void
+
   className?: string
 }
 
@@ -22,10 +39,18 @@ export const StructuredExtractionPane: React.FC<StructuredExtractionPaneProps> =
   onTabChange,
   activeEvidenceKey,
   onHighlightEvidence,
+  isEditMode = false,
+  draft,
+  onUpdateDraftField,
+  onAutoCalculateTotal,
+  onUpdateDraftLineItem,
+  onAddDraftLineItem,
+  onRemoveDraftLineItem,
+  onApplyCalculatedSubtotal,
   className = '',
 }) => {
   const extraction = document.extraction
-  const lineItems = extraction?.line_items || []
+  const lineItems = isEditMode && draft ? draft.line_items : extraction?.line_items || []
   const validationErrors = document.validation_errors || []
   const auditLogs = document.audit_logs || []
 
@@ -37,6 +62,11 @@ export const StructuredExtractionPane: React.FC<StructuredExtractionPaneProps> =
       key: 'fields',
       label: 'Fields',
       icon: <FileText className="w-4 h-4" />,
+      badge: isEditMode ? (
+        <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/30">
+          EDIT
+        </span>
+      ) : undefined,
     },
     {
       key: 'items',
@@ -107,7 +137,11 @@ export const StructuredExtractionPane: React.FC<StructuredExtractionPaneProps> =
       <div className="flex-1 overflow-y-auto p-4 sm:p-5">
         {activeTab === 'fields' && (
           <HeaderEntitiesCard
-            extraction={extraction}
+            document={document}
+            isEditMode={isEditMode}
+            draft={draft}
+            onUpdateDraftField={onUpdateDraftField}
+            onAutoCalculateTotal={onAutoCalculateTotal}
             activeEvidenceKey={activeEvidenceKey}
             onHighlightEvidence={onHighlightEvidence}
           />
@@ -115,9 +149,21 @@ export const StructuredExtractionPane: React.FC<StructuredExtractionPaneProps> =
 
         {activeTab === 'items' && (
           <LineItemsTable
-            items={lineItems}
-            currency={extraction?.currency || 'USD'}
-            statedSubtotal={extraction?.subtotal !== null && extraction?.subtotal !== undefined ? Number(extraction.subtotal) : null}
+            items={extraction?.line_items || []}
+            currency={isEditMode && draft ? draft.currency : (extraction?.currency || 'USD')}
+            statedSubtotal={
+              isEditMode && draft
+                ? draft.subtotal
+                : (extraction?.subtotal !== null && extraction?.subtotal !== undefined
+                    ? Number(extraction.subtotal)
+                    : null)
+            }
+            isEditMode={isEditMode}
+            draftItems={draft?.line_items}
+            onUpdateItem={onUpdateDraftLineItem}
+            onAddItem={onAddDraftLineItem}
+            onRemoveItem={onRemoveDraftLineItem}
+            onApplyCalculatedSubtotal={onApplyCalculatedSubtotal}
           />
         )}
 

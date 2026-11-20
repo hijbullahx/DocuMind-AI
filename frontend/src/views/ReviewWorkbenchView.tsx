@@ -57,7 +57,7 @@ export const ReviewWorkbenchView: React.FC<ReviewWorkbenchViewProps> = ({
     }
   }, [selectedId, documents])
 
-  // Active Document Review hook
+  // Active Document Review hook with full TASK-017 correction support
   const {
     document,
     isLoading: isReviewLoading,
@@ -73,11 +73,36 @@ export const ReviewWorkbenchView: React.FC<ReviewWorkbenchViewProps> = ({
     setSearchQuery,
     activeTab,
     setActiveTab,
+    // Edit & Correction state
+    isEditMode,
+    setIsEditMode,
+    draft,
+    isDirty,
+    dirtyFieldCount,
+    isSavingCorrection,
+    correctionError,
+    correctionSuccessMessage,
+    updateDraftField,
+    updateDraftLineItem,
+    addDraftLineItem,
+    removeDraftLineItem,
+    applyCalculatedSubtotal,
+    applyCalculatedTotal,
+    saveCorrections,
+    cancelEditing,
     refresh: refreshDocument,
     reprocess,
   } = useDocumentReview(selectedId)
 
   const handleSelectDocument = (id: string) => {
+    // If currently editing with unsaved changes, prompt before switching
+    if (isEditMode && isDirty) {
+      const confirmLeave = window.confirm(
+        'You have unsaved corrections on this document. Are you sure you want to discard them and switch documents?'
+      )
+      if (!confirmLeave) return
+      cancelEditing()
+    }
     setSelectedId(id)
     // On small screens, close the drawer after selection
     if (window.innerWidth < 768) {
@@ -126,6 +151,16 @@ export const ReviewWorkbenchView: React.FC<ReviewWorkbenchViewProps> = ({
           isReprocessing={isReprocessing}
           reprocessMessage={reprocessMessage}
           reprocessError={reprocessError}
+          // TASK-017 edit controls
+          isEditMode={isEditMode}
+          onToggleEditMode={() => setIsEditMode(!isEditMode)}
+          isDirty={isDirty}
+          dirtyFieldCount={dirtyFieldCount}
+          isSavingCorrection={isSavingCorrection}
+          correctionSuccessMessage={correctionSuccessMessage}
+          correctionError={correctionError}
+          onSaveCorrections={saveCorrections}
+          onCancelEditing={cancelEditing}
           onNavigateBack={onNavigateBack}
         />
 
@@ -182,6 +217,15 @@ export const ReviewWorkbenchView: React.FC<ReviewWorkbenchViewProps> = ({
                 onTabChange={setActiveTab}
                 activeEvidenceKey={activeEvidenceKey}
                 onHighlightEvidence={setEvidenceHighlight}
+                // TASK-017 editing props
+                isEditMode={isEditMode}
+                draft={draft}
+                onUpdateDraftField={updateDraftField}
+                onAutoCalculateTotal={applyCalculatedTotal}
+                onUpdateDraftLineItem={updateDraftLineItem}
+                onAddDraftLineItem={addDraftLineItem}
+                onRemoveDraftLineItem={removeDraftLineItem}
+                onApplyCalculatedSubtotal={applyCalculatedSubtotal}
               />
             }
           />
