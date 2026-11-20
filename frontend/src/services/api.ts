@@ -9,6 +9,10 @@ import type {
   DocumentListItem,
   PaginatedResponse,
 } from '../types/document.ts'
+import type {
+  ReconciliationRecord,
+  ReconciliationRequestPayload,
+} from '../types/reconciliation.ts'
 import type { DocumentStatusResponse, ReprocessResponse } from '../types/upload.ts'
 
 const API_BASE = '/api'
@@ -271,5 +275,58 @@ export const api = {
     } catch {
       return []
     }
+  },
+
+  /**
+   * TASK-018: Initiates cross-document reconciliation between two documents.
+   */
+  async runReconciliation(payload: ReconciliationRequestPayload): Promise<ReconciliationRecord> {
+    return request<ReconciliationRecord>('/reconciliations/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /**
+   * TASK-018: Retrieves a specific reconciliation record by ID.
+   */
+  async getReconciliationDetail(id: string): Promise<ReconciliationRecord> {
+    return request<ReconciliationRecord>(`/reconciliations/${id}/`)
+  },
+
+  /**
+   * TASK-018: Lists previous reconciliation records with optional filtering.
+   */
+  async getReconciliations(params?: {
+    document_id?: string
+    status?: string
+    page?: number
+    page_size?: number
+  }): Promise<PaginatedResponse<ReconciliationRecord>> {
+    const searchParams = new URLSearchParams()
+    if (params?.document_id) searchParams.set('document_id', params.document_id)
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.page_size) searchParams.set('page_size', String(params.page_size))
+
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return request<PaginatedResponse<ReconciliationRecord>>(`/reconciliations/${qs}`)
+  },
+
+  /**
+   * TASK-018: Re-runs reconciliation for an existing pair.
+   */
+  async reReconcile(id: string, tolerance?: number): Promise<ReconciliationRecord> {
+    const body = tolerance !== undefined ? JSON.stringify({ tolerance }) : undefined
+    return request<ReconciliationRecord>(`/reconciliations/${id}/re-reconcile/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body,
+    })
   },
 }

@@ -320,6 +320,9 @@ class DocumentCorrectionSerializer(serializers.Serializer):
 
 class CrossReconciliationSerializer(serializers.ModelSerializer):
     """Serializes paired document reconciliation findings, match counts, and status."""
+    doc_a_details = serializers.SerializerMethodField()
+    doc_b_details = serializers.SerializerMethodField()
+    comparison_matrix = serializers.SerializerMethodField()
 
     class Meta:
         model = CrossReconciliation
@@ -327,6 +330,9 @@ class CrossReconciliationSerializer(serializers.ModelSerializer):
             "id",
             "doc_a",
             "doc_b",
+            "doc_a_details",
+            "doc_b_details",
+            "comparison_matrix",
             "status",
             "is_reconciled",
             "discrepancies",
@@ -338,4 +344,129 @@ class CrossReconciliationSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+    def get_doc_a_details(self, obj):
+        if not obj.doc_a:
+            return None
+        return self._format_doc_summary(obj.doc_a)
+
+    def get_doc_b_details(self, obj):
+        if not obj.doc_b:
+            return None
+        return self._format_doc_summary(obj.doc_b)
+
+    def _format_doc_summary(self, doc):
+        ext = getattr(doc, "extraction", None)
+        ext_data = None
+        if ext:
+            ext_data = {
+                "id": str(ext.id),
+                "invoice_number": ext.invoice_number,
+                "invoice_date": str(ext.invoice_date) if ext.invoice_date else None,
+                "due_date": str(ext.due_date) if ext.due_date else None,
+                "supplier_name": ext.supplier_name,
+                "supplier_address": ext.supplier_address,
+                "customer_name": ext.customer_name,
+                "customer_address": ext.customer_address,
+                "subtotal": str(ext.subtotal) if ext.subtotal is not None else None,
+                "tax": str(ext.tax) if ext.tax is not None else None,
+                "total": str(ext.total) if ext.total is not None else None,
+                "currency": ext.currency,
+                "confidence_score": ext.confidence_score,
+                "line_items": [
+                    {
+                        "id": str(li.id),
+                        "line_number": li.line_number,
+                        "description": li.description,
+                        "quantity": str(li.quantity) if li.quantity is not None else None,
+                        "unit_price": str(li.unit_price) if li.unit_price is not None else None,
+                        "amount": str(li.amount) if li.amount is not None else None,
+                    }
+                    for li in ext.line_items.all().order_by("line_number")
+                ],
+            }
+        return {
+            "id": str(doc.id),
+            "filename": doc.filename,
+            "file_type": doc.file_type,
+            "file_size_bytes": doc.file_size_bytes,
+            "status": doc.status,
+            "validation_status": doc.validation_status,
+            "metadata": doc.metadata or {},
+            "extraction": ext_data,
+        }
+
+    def get_comparison_matrix(self, obj):
+        """Builds structured comparison matrix rows across standard header fields."""
+        if not obj.doc_a or not obj.doc_b:
+            return []
+
+        ext_a = getattr(obj.doc_a, "extraction", None)
+        ext_b = getattr(obj.doc_b, "extraction", None)
+        if not ext_a or not ext_b:
+            return []
+
+        meta_a = (obj.doc_a.metadata or {}).get("manual_corrections") or {}
+        meta_b = (obj.doc_b.metadata or {}).get("manual_corrections") or {}
+        orig_a = meta_a.get("original_extraction") or {}
+        orig_b = meta_b.get("original_extraction") or {}
+        corr_fields_a = set(meta_a.get("corrected_fields") or [])
+        corr_fields_b = set(meta_b.get("corrected_fields") or [])
+
+        discrepancies_by_field = {d.get("field"): d for d in (obj.discrepancies or [])}
+        warnings_by_field = {w.get("field"): w for w in (obj.warnings or [])}
+
+        fields_to_compare = [
+            ("invoice_number", "Invoice / Ref Number"),
+            ("invoice_date", "Invoice Date"),
+            ("supplier_name", "Supplier / Vendor"),
+            ("customer_name", "Customer / Bill-To"),
+            ("currency", "Currency"),
+            ("subtotal", "Subtotal"),
+            ("tax", "Tax / VAT"),
+            ("total", "Total Amount"),
+        ]
+
+        matrix = []
+        for field_key, label in fields_to_compare:
+            val_a = getattr(ext_a, field_key, None)
+            val_b = getattr(ext_b, field_key, None)
+            val_a_str = str(val_a) if val_a is not None else None
+            val_b_str = str(val_b) if val_b is not None else None
+
+            disc = discrepancies_by_field.get(field_key)
+            warn = warnings_by_field.get(field_key)
+
+            if disc:
+                match_status = "DISCREPANCY"
+                diff = disc.get("difference")
+                message = disc.get("message")
+            elif warn:
+                match_status = "WARNING"
+                diff = warn.get("difference")
+                message = warn.get("message")
+            elif val_a_str is None or val_b_str is None:
+                match_status = "MISSING"
+                diff = None
+                message = "Value missing in one or both documents"
+            else:
+                match_status = "MATCH"
+                diff = None
+                message = "Values match within tolerance"
+
+            matrix.append({
+                "field": field_key,
+                "label": label,
+                "doc_a_value": val_a_str,
+                "doc_b_value": val_b_str,
+                "doc_a_is_corrected": field_key in corr_fields_a,
+                "doc_b_is_corrected": field_key in corr_fields_b,
+                "doc_a_original": str(orig_a.get(field_key)) if field_key in orig_a else None,
+                "doc_b_original": str(orig_b.get(field_key)) if field_key in orig_b else None,
+                "status": match_status,
+                "difference": str(diff) if diff is not None else None,
+                "message": message,
+            })
+
+        return matrix
 

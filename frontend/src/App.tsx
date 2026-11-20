@@ -6,6 +6,7 @@ import type { DashboardMetrics, DocumentListItem } from '@/types/document'
 import { DashboardOverview } from '@/views/DashboardOverview'
 import { BatchUploadView } from '@/views/BatchUploadView'
 import { ReviewWorkbenchView } from '@/views/ReviewWorkbenchView'
+import { ReconciliationView } from '@/views/ReconciliationView'
 import { ModulePlaceholderView } from '@/views/ModulePlaceholderView'
 
 export function App() {
@@ -83,6 +84,8 @@ export function App() {
           initialDocumentId={selectedDocumentIdForReview}
           onNavigateBack={() => setCurrentView('dashboard')}
         />
+      ) : currentView === 'reconcile' ? (
+        <ReconciliationView />
       ) : (
         <ModulePlaceholderView moduleKey={currentView} />
       )}

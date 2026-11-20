@@ -54,7 +54,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Cross-Reconciliation',
       icon: <GitCompare className="w-5 h-5" />,
       tag: 'TASK-018',
-      isPlanned: true,
     },
     {
       key: 'search',

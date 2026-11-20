@@ -481,9 +481,10 @@ class DocumentViewSet(viewsets.ModelViewSet):
 class CrossReconciliationViewSet(viewsets.ModelViewSet):
     """
     REST ViewSet managing cross-document financial verification and reconciliations.
-    - list (GET /api/reconciliations/): Paginated listing of reconciliation records.
-    - retrieve (GET /api/reconciliations/{id}/): Detailed findings and discrepancy list.
+    - list (GET /api/reconciliations/): Paginated listing of reconciliation records with filtering.
+    - retrieve (GET /api/reconciliations/{id}/): Detailed findings, discrepancy list, and comparison matrix.
     - create (POST /api/reconciliations/): Trigger reconciliation between two documents.
+    - re_reconcile (POST /api/reconciliations/{id}/re-reconcile/): Re-runs verification with fresh data.
     """
     permission_classes = [AllowAny]
     pagination_class = DocumentPagination
@@ -491,7 +492,34 @@ class CrossReconciliationViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
-        return CrossReconciliation.objects.all().select_related("doc_a", "doc_b").order_by("-created_at")
+        qs = CrossReconciliation.objects.all().select_related(
+            "doc_a", "doc_b",
+            "doc_a__extraction", "doc_b__extraction",
+        ).prefetch_related(
+            "doc_a__extraction__line_items",
+            "doc_b__extraction__line_items",
+        )
+
+        doc_id = self.request.query_params.get("document_id")
+        if doc_id:
+            try:
+                uuid_obj = uuid.UUID(str(doc_id))
+                qs = qs.filter(Q(doc_a_id=uuid_obj) | Q(doc_b_id=uuid_obj))
+            except (ValueError, TypeError):
+                pass
+
+        recon_status = self.request.query_params.get("status")
+        if recon_status:
+            qs = qs.filter(status=recon_status.strip().upper())
+
+        is_reconciled = self.request.query_params.get("is_reconciled")
+        if is_reconciled is not None:
+            if is_reconciled.lower() in ("true", "1"):
+                qs = qs.filter(is_reconciled=True)
+            elif is_reconciled.lower() in ("false", "0"):
+                qs = qs.filter(is_reconciled=False)
+
+        return qs.order_by("-created_at")
 
     def get_object(self) -> CrossReconciliation:
         pk_val = self.kwargs.get("pk", "")
@@ -505,10 +533,39 @@ class CrossReconciliationViewSet(viewsets.ModelViewSet):
         except CrossReconciliation.DoesNotExist:
             raise Http404(f"Reconciliation record with ID {pk_val} not found.")
 
+    def _execute_and_persist_reconciliation(self, doc_a: Document, doc_b: Document, tolerance: Decimal) -> CrossReconciliation:
+        from apps.documents.tasks import _format_model_extraction_to_dict
+        from apps.validation.cross_verifier import CrossDocumentVerifier
+
+        ext_a = getattr(doc_a, "extraction", None) or InvoiceExtraction.objects.filter(document=doc_a).first()
+        ext_b = getattr(doc_b, "extraction", None) or InvoiceExtraction.objects.filter(document=doc_b).first()
+
+        data_a = _format_model_extraction_to_dict(ext_a)
+        data_b = _format_model_extraction_to_dict(ext_b)
+
+        tol_decimal = Decimal(str(tolerance)) if tolerance else Decimal("0.05")
+        verifier = CrossDocumentVerifier(default_tolerance=tol_decimal)
+        result = verifier.reconcile(data_a, data_b, doc_a_id=str(doc_a.id), doc_b_id=str(doc_b.id))
+
+        rec = CrossReconciliation.objects.create(
+            doc_a=doc_a,
+            doc_b=doc_b,
+            status=result.status.value,
+            is_reconciled=result.is_reconciled,
+            discrepancies=[d.to_dict() for d in result.discrepancies],
+            warnings=[w.to_dict() for w in result.warnings],
+            fields_compared=result.fields_compared,
+            matched_items_count=result.matched_items_count,
+            unmatched_items_count=result.unmatched_items_count,
+            summary=result.summary,
+        )
+        return rec
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         """
         Initiates cross-document verification between doc_a and doc_b.
         Validates existence, distinctness, and structured extraction availability.
+        Executes reconciliation and persists findings.
         """
         serializer = CrossReconciliationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -517,22 +574,28 @@ class CrossReconciliationViewSet(viewsets.ModelViewSet):
         doc_b = serializer.validated_data["doc_b"]
         tolerance = serializer.validated_data.get("tolerance", Decimal("0.05"))
 
-        logger.info(f"[API] Initiating cross-reconciliation between doc_a={doc_a.id} and doc_b={doc_b.id}")
+        # Guard against active processing state (409 Conflict)
+        if doc_a.status == DocumentStatus.PROCESSING or doc_b.status == DocumentStatus.PROCESSING:
+            return Response(
+                {
+                    "error": "Cannot reconcile documents while one or both are actively being processed.",
+                    "doc_a_id": str(doc_a.id),
+                    "doc_b_id": str(doc_b.id),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        # Dispatch async reconciliation task
-        task_res = reconcile_documents_task.delay(str(doc_a.id), str(doc_b.id), tolerance=str(tolerance))
+        logger.info(f"[API] Reconciling doc_a={doc_a.id} and doc_b={doc_b.id} (tolerance={tolerance})")
 
-        # Check if record was created immediately (e.g. eager mode in test / dev)
-        rec = CrossReconciliation.objects.filter(doc_a=doc_a, doc_b=doc_b).order_by("-created_at").first()
-        if rec:
-            return Response(CrossReconciliationSerializer(rec).data, status=status.HTTP_201_CREATED)
+        rec = self._execute_and_persist_reconciliation(doc_a, doc_b, tolerance)
+        return Response(CrossReconciliationSerializer(rec).data, status=status.HTTP_201_CREATED)
 
-        return Response(
-            {
-                "message": "Cross-document reconciliation task successfully queued.",
-                "doc_a_id": str(doc_a.id),
-                "doc_b_id": str(doc_b.id),
-                "tolerance": str(tolerance),
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
+    @action(detail=True, methods=["post"], url_path="re-reconcile")
+    def re_reconcile(self, request: Request, pk=None) -> Response:
+        """Re-runs reconciliation for an existing pair using latest document data and optional custom tolerance."""
+        rec = self.get_object()
+        raw_tol = request.data.get("tolerance")
+        tolerance = Decimal(str(raw_tol)) if raw_tol is not None else Decimal("0.05")
+
+        new_rec = self._execute_and_persist_reconciliation(rec.doc_a, rec.doc_b, tolerance)
+        return Response(CrossReconciliationSerializer(new_rec).data, status=status.HTTP_201_CREATED)

@@ -43,6 +43,8 @@ class CrossVerificationRuleId(str, Enum):
     CROSS_REFERENCE_MISMATCH = "CROSS_REFERENCE_MISMATCH"
     CROSS_ITEM_MISMATCH = "CROSS_ITEM_MISMATCH"
     CROSS_UNMATCHED_ITEM = "CROSS_UNMATCHED_ITEM"
+    CROSS_DATE_MISMATCH = "CROSS_DATE_MISMATCH"
+    CROSS_POTENTIAL_DUPLICATE = "CROSS_POTENTIAL_DUPLICATE"
     CROSS_INCOMPLETE_COMPARISON = "CROSS_INCOMPLETE_COMPARISON"
     CROSS_INCOMPATIBLE_DOCUMENT = "CROSS_INCOMPATIBLE_DOCUMENT"
 
@@ -551,6 +553,8 @@ class CrossDocumentVerifier:
 
         # 8. Document Reference / Invoice Number Comparison
         fields_compared.append("invoice_number")
+        ref_a = None
+        ref_b = None
         if model_a.invoice_number and model_b.invoice_number:
             ref_a = " ".join(str(model_a.invoice_number).strip().split()).lower()
             ref_b = " ".join(str(model_b.invoice_number).strip().split()).lower()
@@ -571,6 +575,52 @@ class CrossDocumentVerifier:
                         doc_b_id=doc_b_id,
                     )
                 )
+
+        # 8b. Document Issue Date Comparison
+        fields_compared.append("invoice_date")
+        if model_a.invoice_date and model_b.invoice_date:
+            date_a_str = str(model_a.invoice_date)
+            date_b_str = str(model_b.invoice_date)
+            if date_a_str != date_b_str:
+                _add_issue(
+                    CrossDocumentDiscrepancy(
+                        rule_id=CrossVerificationRuleId.CROSS_DATE_MISMATCH.value,
+                        field="invoice_date",
+                        message=(
+                            f"Document date discrepancy: {doc_a_id} has '{date_a_str}', "
+                            f"whereas {doc_b_id} has '{date_b_str}'."
+                        ),
+                        severity=ValidationSeverity.WARNING,
+                        doc_a_value=date_a_str,
+                        doc_b_value=date_b_str,
+                        doc_a_id=doc_a_id,
+                        doc_b_id=doc_b_id,
+                    )
+                )
+
+        # 8c. Potential Duplicate Document Detection
+        if (
+            supp_a and supp_b and supp_a == supp_b
+            and ref_a and ref_b and ref_a == ref_b
+            and model_a.total is not None and model_b.total is not None
+            and abs(model_a.total - model_b.total) <= tol
+        ):
+            _add_issue(
+                CrossDocumentDiscrepancy(
+                    rule_id=CrossVerificationRuleId.CROSS_POTENTIAL_DUPLICATE.value,
+                    field="invoice_number",
+                    message=(
+                        f"Potential duplicate invoice detected: {doc_a_id} and {doc_b_id} share identical "
+                        f"supplier ('{model_a.supplier_name}'), invoice reference ('{model_a.invoice_number}'), "
+                        f"and total amount ({model_a.total})."
+                    ),
+                    severity=ValidationSeverity.WARNING,
+                    doc_a_value=f"{model_a.supplier_name} / {model_a.invoice_number} / {model_a.total}",
+                    doc_b_value=f"{model_b.supplier_name} / {model_b.invoice_number} / {model_b.total}",
+                    doc_a_id=doc_a_id,
+                    doc_b_id=doc_b_id,
+                )
+            )
 
         # 9. Line Item Cross-Reconciliation
         fields_compared.append("line_items")
