@@ -59,7 +59,11 @@ def setup_test_env():
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    from django.contrib.auth.models import User
+    user, _ = User.objects.get_or_create(username="test_auditor", defaults={"email": "auditor@documind.test"})
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
 
 
 @pytest.fixture

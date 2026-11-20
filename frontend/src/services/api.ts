@@ -3,6 +3,12 @@
  * Interacts with Django REST Framework endpoints via Vite proxy (/api).
  */
 import type {
+  AuthTokens,
+  LoginCredentials,
+  LoginResponse,
+  User,
+} from '../types/auth.ts'
+import type {
   DashboardMetrics,
   DocumentCorrectionPayload,
   DocumentDetail,
@@ -20,6 +26,74 @@ import type {
 import type { DocumentStatusResponse, ReprocessResponse } from '../types/upload.ts'
 
 const API_BASE = '/api'
+const ACCESS_TOKEN_KEY = 'documind_access_token'
+const REFRESH_TOKEN_KEY = 'documind_refresh_token'
+const USER_KEY = 'documind_user'
+
+type UnauthorizedListener = () => void
+const unauthorizedListeners: Set<UnauthorizedListener> = new Set()
+
+function notifyUnauthorized() {
+  unauthorizedListeners.forEach((listener) => {
+    try {
+      listener()
+    } catch {
+      // Ignore listener error
+    }
+  })
+}
+
+export function getStoredAccessToken(): string | null {
+  try {
+    return localStorage.getItem(ACCESS_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function getStoredRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setStoredTokens(tokens: AuthTokens): void {
+  try {
+    localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access)
+    localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh)
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function clearStoredAuth(): void {
+  try {
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function getStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    return raw ? (JSON.parse(raw) as User) : null
+  } catch {
+    return null
+  }
+}
+
+export function setStoredUser(user: User): void {
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(user))
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export class ApiError extends Error {
   status: number
@@ -33,15 +107,67 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+interface RequestOptions extends RequestInit {
+  _isRetry?: boolean
+}
+
+async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`
   const headers = new Headers(options.headers || {})
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json')
   }
 
+  // Inject Authorization header if JWT token is stored and not explicitly overridden
+  const token = getStoredAccessToken()
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
   try {
     const res = await fetch(url, { ...options, headers })
+
+    // Handle 401 Unauthorized with automatic token refresh attempt
+    if (res.status === 401 && !options._isRetry && !endpoint.startsWith('/auth/')) {
+      const refreshToken = getStoredRefreshToken()
+      if (refreshToken) {
+        try {
+          const refreshRes = await fetch(`${API_BASE}/auth/refresh/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({ refresh: refreshToken }),
+          })
+
+          if (refreshRes.ok) {
+            const refreshData = (await refreshRes.json()) as { access: string }
+            if (refreshData.access) {
+              setStoredTokens({ access: refreshData.access, refresh: refreshToken })
+              // Retry original request with the fresh token
+              const retryHeaders = new Headers(options.headers || {})
+              retryHeaders.set('Authorization', `Bearer ${refreshData.access}`)
+              return request<T>(endpoint, {
+                ...options,
+                headers: retryHeaders,
+                _isRetry: true,
+              })
+            }
+          }
+        } catch {
+          // Token refresh network error
+        }
+
+        // Token refresh rejected/expired: clear session and notify subscribers
+        clearStoredAuth()
+        notifyUnauthorized()
+      } else {
+        clearStoredAuth()
+        notifyUnauthorized()
+      }
+    }
+
     if (!res.ok) {
       let errorBody: unknown = null
       try {
@@ -72,13 +198,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const api = {
   /**
-   * Probes backend availability using the lightweight documents endpoint.
+   * Probes backend availability using the public lightweight /health/ endpoint.
    */
   async checkBackendHealth(): Promise<{ isConnected: boolean; message: string }> {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 3500)
-      const res = await fetch(`${API_BASE}/documents/?page_size=1`, {
+      const res = await fetch(`${API_BASE}/health/`, {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       })
@@ -162,6 +288,10 @@ export const api = {
 
       xhr.open('POST', `${API_BASE}/documents/`, true)
       xhr.setRequestHeader('Accept', 'application/json')
+      const token = getStoredAccessToken()
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      }
       xhr.timeout = 60000 // 60s timeout for upload
       xhr.send(formData)
     })
@@ -352,5 +482,99 @@ export const api = {
 
     const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return request<SearchResponse>(`/documents/search/${qs}`)
+  },
+
+  /**
+   * TASK-020: Authenticates user credentials and stores JWT tokens.
+   */
+  async login(credentials: LoginCredentials): Promise<LoginResponse> {
+    const res = await request<LoginResponse>('/auth/login/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+    })
+    if (res.access && res.refresh) {
+      setStoredTokens({ access: res.access, refresh: res.refresh })
+    }
+    if (res.user) {
+      setStoredUser(res.user)
+    }
+    return res
+  },
+
+  /**
+   * TASK-020: Refreshes access token using refresh token.
+   */
+  async refreshToken(refresh: string): Promise<{ access: string }> {
+    const res = await request<{ access: string }>('/auth/refresh/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh }),
+    })
+    if (res.access) {
+      const currentRefresh = getStoredRefreshToken() || refresh
+      setStoredTokens({ access: res.access, refresh: currentRefresh })
+    }
+    return res
+  },
+
+  /**
+   * TASK-020: Fetches currently authenticated user profile.
+   */
+  async getCurrentUser(): Promise<User> {
+    const user = await request<User>('/auth/me/')
+    setStoredUser(user)
+    return user
+  },
+
+  /**
+   * TASK-020: Logs out the current user session and clears credentials.
+   */
+  async logout(): Promise<void> {
+    try {
+      const refresh = getStoredRefreshToken()
+      await request<void>('/auth/logout/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh }),
+      })
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      clearStoredAuth()
+    }
+  },
+
+  /**
+   * Exposes token helper access for components and test runners.
+   */
+  getAccessToken(): string | null {
+    return getStoredAccessToken()
+  },
+
+  getRefreshToken(): string | null {
+    return getStoredRefreshToken()
+  },
+
+  getStoredUser(): User | null {
+    return getStoredUser()
+  },
+
+  setStoredTokens(tokens: AuthTokens): void {
+    setStoredTokens(tokens)
+  },
+
+  clearStoredAuth(): void {
+    clearStoredAuth()
+  },
+
+  /**
+   * Subscribes to unauthorized 401 events for automatic UI redirection.
+   */
+  onUnauthorized(callback: UnauthorizedListener): () => void {
+    unauthorizedListeners.add(callback)
+    return () => {
+      unauthorizedListeners.delete(callback)
+    }
   },
 }

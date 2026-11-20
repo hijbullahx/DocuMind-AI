@@ -10,7 +10,20 @@ import os
 from typing import Any, Dict, List, Optional, Union
 import uuid
 
-from celery import shared_task
+try:
+    from celery import shared_task
+except ImportError:
+    # Graceful fallback decorator when Celery is not installed
+    def shared_task(*args, **kwargs):
+        def decorator(f):
+            f.delay = f
+            return f
+        if args and callable(args[0]):
+            f = args[0]
+            f.delay = f
+            return f
+        return decorator
+
 from django.db import transaction
 from django.utils import timezone
 

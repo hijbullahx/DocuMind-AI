@@ -307,7 +307,7 @@ class DocumentCorrectionSerializer(serializers.Serializer):
     currency = serializers.CharField(max_length=16, required=False, allow_null=True, allow_blank=True)
     line_items = LineItemCorrectionSerializer(many=True, required=False)
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="Manual operator correction")
-    operator = serializers.CharField(max_length=128, required=False, allow_blank=True, default="operator")
+    operator = serializers.CharField(max_length=128, required=False, allow_blank=True, allow_null=True, default=None)
 
     def validate_currency(self, value):
         if value is not None:

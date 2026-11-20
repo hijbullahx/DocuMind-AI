@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Navbar } from './Navbar'
 import { Sidebar, type NavItemKey } from './Sidebar'
+import type { User } from '@/types/auth'
 
 export interface AppLayoutProps {
   currentView: NavItemKey
@@ -8,6 +9,8 @@ export interface AppLayoutProps {
   backendConnected: boolean
   isCheckingBackend: boolean
   onRefreshMetrics: () => void
+  user?: User | null
+  onLogout?: () => void
   children: React.ReactNode
 }
 
@@ -17,6 +20,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   backendConnected,
   isCheckingBackend,
   onRefreshMetrics,
+  user,
+  onLogout,
   children,
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
@@ -29,6 +34,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         isCheckingBackend={isCheckingBackend}
         onRefreshMetrics={onRefreshMetrics}
         onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
+        user={user}
+        onLogout={onLogout}
       />
 
       {/* Main Shell (Sidebar + Content Viewport) */}

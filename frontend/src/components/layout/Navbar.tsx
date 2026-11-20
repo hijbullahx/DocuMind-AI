@@ -1,24 +1,30 @@
 import React from 'react'
 import {
   FileText,
+  LogOut,
   RefreshCw,
   Server,
   ShieldCheck,
-  User,
+  User as UserIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import type { User } from '@/types/auth'
 
 export interface NavbarProps {
   backendConnected: boolean
   isCheckingBackend: boolean
   onRefreshMetrics: () => void
   onToggleSidebar?: () => void
+  user?: User | null
+  onLogout?: () => void
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   backendConnected,
   isCheckingBackend,
   onRefreshMetrics,
+  user,
+  onLogout,
 }) => {
   return (
     <header className="h-16 border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm sticky top-0 z-30 px-4 sm:px-6 flex items-center justify-between">
@@ -82,20 +88,37 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden sm:inline">Refresh</span>
         </Button>
 
-        {/* Operator Profile */}
+        {/* Operator Profile & Sign Out */}
         <div className="flex items-center gap-2.5 pl-2 border-l border-slate-800">
-          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
-            <User className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 font-semibold text-xs">
+            {user?.username ? user.username.slice(0, 2).toUpperCase() : <UserIcon className="w-4 h-4" />}
           </div>
           <div className="hidden md:block text-left">
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-semibold text-slate-200">
-                Auditor Session
+                {user?.username || 'Auditor Session'}
               </span>
               <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
             </div>
-            <span className="text-[10px] text-slate-400">Compliance Operator</span>
+            <span className="text-[10px] text-slate-400">
+              {user?.is_superuser
+                ? 'Superuser'
+                : user?.is_staff
+                ? 'Administrator'
+                : 'Compliance Auditor'}
+            </span>
           </div>
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-slate-800/80 transition-colors ml-1"
+              title="Sign out of DocuMind-AI"
+              aria-label="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

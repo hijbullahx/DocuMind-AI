@@ -10,8 +10,19 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from PIL import Image
-import pymupdf as fitz  # PyMuPDF
-import pdfplumber
+try:
+    import pymupdf as fitz  # PyMuPDF
+except ImportError:
+    try:
+        import fitz
+    except ImportError:
+        fitz = None
+
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+
 
 from .base import (
     BaseParser,

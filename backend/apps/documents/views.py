@@ -18,7 +18,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -66,8 +66,10 @@ class DocumentViewSet(viewsets.ModelViewSet):
     - create (POST /api/documents/): Upload file or raw text, enqueue async processing.
     - status (GET /api/documents/{id}/status/): Lightweight status polling endpoint.
     - reprocess (POST /api/documents/{id}/reprocess/): Safe retry or forced re-processing.
+    - search (GET /api/documents/search/): Full-text search with relevance ranking.
+    - correct (POST /api/documents/{id}/correct/): Validated operator manual corrections.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = DocumentPagination
     http_method_names = ["get", "post", "head", "options"]
 
@@ -161,6 +163,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
         uploaded_file = serializer.validated_data.get("file")
         raw_text = serializer.validated_data.get("raw_text")
+        uploader = request.user.username if request.user and request.user.is_authenticated else "operator"
 
         if uploaded_file:
             cleaned_filename = serializer.validated_data["cleaned_filename"]
@@ -175,6 +178,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 raw_text=raw_text or "",
                 status=DocumentStatus.QUEUED,
                 validation_status=ValidationStatusChoices.PENDING,
+                metadata={"uploaded_by": uploader},
             )
         else:
             # Direct raw text ingestion without physical file
@@ -186,6 +190,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 raw_text=raw_text,
                 status=DocumentStatus.QUEUED,
                 validation_status=ValidationStatusChoices.PENDING,
+                metadata={"uploaded_by": uploader},
             )
 
         logger.info(f"[API] Created document {doc.id} ({doc.filename}). Enqueueing Celery processing task.")
@@ -335,7 +340,13 @@ class DocumentViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        operator = data.get("operator") or (request.user.username if request.user and request.user.is_authenticated else "operator")
+        explicit_operator = data.get("operator")
+        if explicit_operator and explicit_operator.strip() and explicit_operator.strip().lower() != "operator":
+            operator = explicit_operator.strip()
+        elif request.user and request.user.is_authenticated:
+            operator = request.user.username
+        else:
+            operator = explicit_operator or "operator"
         reason = data.get("reason") or "Manual operator correction"
 
         # 4. Atomic transactional persistence and audit recording
@@ -534,7 +545,7 @@ class CrossReconciliationViewSet(viewsets.ModelViewSet):
     - create (POST /api/reconciliations/): Trigger reconciliation between two documents.
     - re_reconcile (POST /api/reconciliations/{id}/re-reconcile/): Re-runs verification with fresh data.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = DocumentPagination
     serializer_class = CrossReconciliationSerializer
     http_method_names = ["get", "post", "head", "options"]
@@ -622,13 +633,16 @@ class CrossReconciliationViewSet(viewsets.ModelViewSet):
         doc_b = serializer.validated_data["doc_b"]
         tolerance = serializer.validated_data.get("tolerance", Decimal("0.05"))
 
-        # Guard against active processing state (409 Conflict)
-        if doc_a.status == DocumentStatus.PROCESSING or doc_b.status == DocumentStatus.PROCESSING:
+        # Guard against active queued or processing states (409 Conflict) - TASK-018 F-02 fix
+        invalid_statuses = (DocumentStatus.QUEUED, DocumentStatus.PROCESSING)
+        if doc_a.status in invalid_statuses or doc_b.status in invalid_statuses:
             return Response(
                 {
-                    "error": "Cannot reconcile documents while one or both are actively being processed.",
+                    "error": "Cannot reconcile documents while one or both are queued or actively being processed.",
                     "doc_a_id": str(doc_a.id),
+                    "doc_a_status": doc_a.status,
                     "doc_b_id": str(doc_b.id),
+                    "doc_b_status": doc_b.status,
                 },
                 status=status.HTTP_409_CONFLICT,
             )
@@ -640,10 +654,31 @@ class CrossReconciliationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="re-reconcile")
     def re_reconcile(self, request: Request, pk=None) -> Response:
-        """Re-runs reconciliation for an existing pair using latest document data and optional custom tolerance."""
+        """
+        Re-runs reconciliation for an existing pair using latest document data and optional custom tolerance.
+        Guards atomically against queued or active processing states (TASK-018 F-02 remediation).
+        """
         rec = self.get_object()
         raw_tol = request.data.get("tolerance")
         tolerance = Decimal(str(raw_tol)) if raw_tol is not None else Decimal("0.05")
 
-        new_rec = self._execute_and_persist_reconciliation(rec.doc_a, rec.doc_b, tolerance)
+        # Atomically inspect current status of both source documents before re-reconciling
+        with transaction.atomic():
+            doc_a = Document.objects.select_for_update().get(id=rec.doc_a_id)
+            doc_b = Document.objects.select_for_update().get(id=rec.doc_b_id)
+
+            invalid_statuses = (DocumentStatus.QUEUED, DocumentStatus.PROCESSING)
+            if doc_a.status in invalid_statuses or doc_b.status in invalid_statuses:
+                return Response(
+                    {
+                        "error": "Cannot re-reconcile documents while one or both are queued or actively being processed.",
+                        "doc_a_id": str(doc_a.id),
+                        "doc_a_status": doc_a.status,
+                        "doc_b_id": str(doc_b.id),
+                        "doc_b_status": doc_b.status,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            new_rec = self._execute_and_persist_reconciliation(doc_a, doc_b, tolerance)
         return Response(CrossReconciliationSerializer(new_rec).data, status=status.HTTP_201_CREATED)
