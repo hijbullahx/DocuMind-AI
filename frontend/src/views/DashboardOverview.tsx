@@ -18,6 +18,7 @@ export interface DashboardOverviewProps {
   isLoadingMetrics: boolean
   isLoadingRecent: boolean
   backendConnected: boolean
+  onReviewDocument?: (id: string) => void
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -26,6 +27,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   isLoadingMetrics,
   isLoadingRecent,
   backendConnected,
+  onReviewDocument,
 }) => {
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B'
@@ -116,6 +118,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         <th className="py-3 px-3">Ingestion Status</th>
                         <th className="py-3 px-3">Validation Status</th>
                         <th className="py-3 px-4 text-right">Timestamp</th>
+                        <th className="py-3 px-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-slate-300">
@@ -145,6 +148,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                           </td>
                           <td className="py-3 px-4 text-right text-slate-400 text-[11px] whitespace-nowrap">
                             {formatDateTime(doc.created_at)}
+                          </td>
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => onReviewDocument?.(doc.id)}
+                              className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-brand-600 text-slate-300 hover:text-white transition-colors text-xs font-medium"
+                              title={`Review ${doc.filename} in Side-by-Side Workbench`}
+                            >
+                              Review
+                            </button>
                           </td>
                         </tr>
                       ))}

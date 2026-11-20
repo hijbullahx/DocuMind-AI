@@ -48,7 +48,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Review Workbench',
       icon: <FileCheck2 className="w-5 h-5" />,
       tag: 'TASK-016',
-      isPlanned: true,
     },
     {
       key: 'reconcile',

@@ -5,10 +5,12 @@ import { api } from '@/services/api'
 import type { DashboardMetrics, DocumentListItem } from '@/types/document'
 import { DashboardOverview } from '@/views/DashboardOverview'
 import { BatchUploadView } from '@/views/BatchUploadView'
+import { ReviewWorkbenchView } from '@/views/ReviewWorkbenchView'
 import { ModulePlaceholderView } from '@/views/ModulePlaceholderView'
 
 export function App() {
   const [currentView, setCurrentView] = useState<NavItemKey>('dashboard')
+  const [selectedDocumentIdForReview, setSelectedDocumentIdForReview] = useState<string | null>(null)
   const [backendConnected, setBackendConnected] = useState<boolean>(false)
   const [isCheckingBackend, setIsCheckingBackend] = useState<boolean>(true)
   const [isLoadingMetrics, setIsLoadingMetrics] = useState<boolean>(true)
@@ -69,9 +71,18 @@ export function App() {
           isLoadingMetrics={isLoadingMetrics}
           isLoadingRecent={isLoadingRecent}
           backendConnected={backendConnected}
+          onReviewDocument={(id) => {
+            setSelectedDocumentIdForReview(id)
+            setCurrentView('review')
+          }}
         />
       ) : currentView === 'upload' ? (
         <BatchUploadView onRefreshMetrics={loadDashboardData} />
+      ) : currentView === 'review' ? (
+        <ReviewWorkbenchView
+          initialDocumentId={selectedDocumentIdForReview}
+          onNavigateBack={() => setCurrentView('dashboard')}
+        />
       ) : (
         <ModulePlaceholderView moduleKey={currentView} />
       )}
